@@ -1,0 +1,11 @@
+secrets/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+downloads/
+logs/
+*.log
+users.db
+external_tools/
+.env

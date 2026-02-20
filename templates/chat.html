@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محادثة {{ user.first_name }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --tg-blue: #5288c1;
+            --tg-blue-dark: #4a7ba7;
+            --tg-bg: #0e1621;
+            --tg-chat-bg: #0e1621;
+            --tg-border: #2b5278;
+            --tg-text: #f5f5f5;
+            --tg-text-secondary: #aaaaaa;
+            --tg-message-out: #2b5278;
+            --tg-message-in: #182533;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--tg-chat-bg);
+            background-image: url('/static/telegram-bg.png');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            padding: 0;
+            direction: rtl;
+            color: var(--tg-text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: rgba(23, 33, 43, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--tg-border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--tg-blue), var(--tg-blue-dark));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 18px;
+            overflow: hidden;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        .avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .user-info h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 3px;
+            color: var(--tg-text);
+        }
+
+        .user-info p {
+            font-size: 13px;
+            color: var(--tg-text-secondary);
+        }
+
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .messages-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .messages-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .messages-container::-webkit-scrollbar-thumb {
+            background: var(--tg-border);
+            border-radius: 3px;
+        }
+
+        .message {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 16px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+            animation: messageSlide 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        @keyframes messageSlide {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: linear-gradient(135deg, var(--tg-message-out), #3a6594);
+            color: var(--tg-text);
+            border-bottom-left-radius: 4px;
+        }
+
+        .message.bot {
+            align-self: flex-start;
+            background: var(--tg-message-in);
+            color: var(--tg-text);
+            border-bottom-right-radius: 4px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-top: 5px;
+            text-align: left;
+        }
+
+        .message.user .message-time {
+            text-align: right;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: var(--tg-text-secondary);
+            margin: auto;
+        }
+
+        .empty-state .icon {
+            font-size: 64px;
+            margin-bottom: 15px;
+            opacity: 0.3;
+        }
+
+        .empty-state p {
+            font-size: 15px;
+        }
+
+        /* Message Input */
+        .message-input-container {
+            background: rgba(23, 33, 43, 0.95);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid var(--tg-border);
+            padding: 15px 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .message-input-container input {
+            flex: 1;
+            background: var(--tg-input-bg);
+            border: 1px solid var(--tg-border);
+            border-radius: 20px;
+            padding: 10px 16px;
+            color: var(--tg-text);
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .message-input-container input:focus {
+            border-color: var(--tg-blue);
+        }
+
+        .message-input-container input::placeholder {
+            color: var(--tg-text-secondary);
+        }
+
+        .send-btn {
+            background: var(--tg-blue);
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .send-btn:hover {
+            background: var(--tg-blue-dark);
+            transform: scale(1.05);
+        }
+
+        .send-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Auto-scroll script */
+        .messages-container.auto-scroll {
+            scroll-behavior: smooth;
+        }
+    </style>
+    <script>
+        // Auto-scroll to bottom on page load
+        window.addEventListener('DOMContentLoaded', function () {
+            const container = document.querySelector('.messages-container');
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
+        });
+    </script>
+</head>
+
+<body>
+
+    <div class="chat-header">
+        <div class="avatar">
+            {% if user.photo_url %}
+            <img src="{{ user.photo_url }}" alt="{{ user.first_name }}" onerror="this.style.display='none';">
+            <span style="position: relative; z-index: 1;">{{ user.first_name[0] if user.first_name else '؟' }}</span>
+            {% else %}
+            {{ user.first_name[0] if user.first_name else '؟' }}
+            {% endif %}
+        </div>
+        <div class="user-info">
+            <h2>{{ user.first_name }}</h2>
+            <p>@{{ user.username if user.username else user.user_id }}</p>
+        </div>
+    </div>
+
+    <div class="messages-container">
+        {% if messages %}
+        {% for msg in messages %}
+        <div class="message {{ msg.message_type }}">
+            {{ msg.message_text }}
+            <div class="message-time">{{ msg.timestamp }}</div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="empty-state">
+            <div class="icon">💬</div>
+            <p>لا توجد رسائل بعد</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <form action="/send_message/{{ user.user_id }}" method="POST" class="message-input-container">
+        <input type="text" name="message" placeholder="اكتب رسالة..." required autocomplete="off">
+        <button type="submit" class="send-btn">📤</button>
+    </form>
+
+</body>
+
+</html>
