@@ -1,5 +1,3 @@
-python-telegram-bot
+python-telegram-bot[all]
 yt-dlp
-python-dotenv
-
-rookiepy
+flask
