@@ -6,7 +6,8 @@ import asyncio
 import threading
 import logging
 
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from telegram import Update
 
 import config
 from data import database
@@ -28,8 +29,20 @@ bot_loop = None
 
 
 def run_flask() -> None:
-    """تشغيل خادم Flask في خيط منفصل."""
-    app.run(host="127.0.0.1", port=5000, debug=False, use_reloader=False)
+    """تشغيل خادم Flask (غير مستخدم في Cloud Run)."""
+    app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
+
+
+# ─── Telegram Webhook ────────────────────────────────────────────────────────
+@app.route("/webhook", methods=["POST"])
+def telegram_webhook():
+    """استقبال التحديثات من Telegram ومعالجتها."""
+    if bot_app is None or bot_loop is None:
+        logger.warning("⚠️ Bot not ready yet")
+        return "Bot not ready", 503
+    update = Update.de_json(request.get_json(force=True), bot_app.bot)
+    asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
+    return "OK", 200
 
 
 # ─── المسارات ────────────────────────────────────────────────────────────────
