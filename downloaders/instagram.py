@@ -8,12 +8,16 @@ downloaders/instagram.py - وحدة تحميل Instagram
 import os
 import random
 import logging
+import threading
 import requests as _requests
 
 import config
 from .base import BaseDownloader
 
 logger = logging.getLogger(__name__)
+
+# قفل لحماية عمليات الكتابة على ملف البروكسيات
+_proxy_file_lock = threading.Lock()
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -43,14 +47,25 @@ def _load_proxies() -> list[str]:
     if not os.path.exists(path):
         logger.warning("⚠️ ملف البروكسيات غير موجود: %s", path)
         return []
-    proxies = []
     with open(path, encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#"):
-                proxies.append(line)
+        proxies = [l.strip() for l in f if l.strip() and not l.startswith("#")]
     logger.info("📡 تم تحميل %d بروكسي من %s", len(proxies), path)
     return proxies
+
+
+def _remove_dead_proxy(proxy: str) -> None:
+    """استبعاد بروكسي ميت من الملف (thread-safe)."""
+    path = config.PROXY_LIST_FILE
+    if not os.path.exists(path):
+        return
+    with _proxy_file_lock:
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            lines = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+        updated = [l for l in lines if l != proxy]
+        if len(updated) < len(lines):   # تغيّر شيء
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(updated) + ("\n" if updated else ""))
+            logger.info("🗑️ استُبعد بروكسي ميت: %s (تبقى %d)", proxy, len(updated))
 
 
 class InstagramDownloader(BaseDownloader):
@@ -109,16 +124,18 @@ class InstagramDownloader(BaseDownloader):
                 return result
             except Exception as exc:
                 err = str(exc)
-                # إذا كانت صورة عبر البروكسي
+                # إذا كانت صورة عبر البروكسي → لا تستبعد البروكسي
                 if "No video formats found" in err:
                     return self._download_image(url, proxy_opts)
                 last_error = exc
                 logger.debug("❌ فشل البروكسي %s: %s", proxy, exc)
+                # ✅ استبعاد البروكسي الميت تلقائياً من الملف
+                _remove_dead_proxy(proxy)
                 continue
 
         raise ValueError(
             f"🚫 فشل جميع البروكسيات ({len(proxies)}) - "
-            f"قد تكون القائمة قديمة، شغّل check_proxies.py مجدداً.\n"
+            f"قد تكون القائمة قديمة، أضف قائمة جديدة من لوحة التحكم.\n"
             f"آخر خطأ: {last_error}"
         )
 
