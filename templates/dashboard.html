@@ -529,6 +529,10 @@
                     style="{% if stats.total_errors > 0 %}color: var(--tg-danger);{% endif %}">
                     سجل الأخطاء {% if stats.total_errors > 0 %}({{ stats.total_errors }}){% endif %}
                 </button>
+                <button class="tab" onclick="showSection('proxies-section')" id="proxies-tab-btn">
+                    🔗 البروكسيات <span id="proxies-count-badge"
+                        style="background:var(--tg-blue);color:#fff;padding:1px 7px;border-radius:10px;font-size:11px;margin-right:4px;">...</span>
+                </button>
             </div>
 
             <div class="content">
@@ -742,18 +746,188 @@
                     </div>
                 </div>
 
-            </div>
+                <!-- ═══ قسم البروكسيات ══════════════════════════════════════════ -->
+                <div id="proxies-section" class="section">
+                    <div class="card">
+                        <div
+                            style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:18px;">
+                            <h3 style="margin:0;">🔗 إدارة البروكسيات</h3>
+                            <div style="display:flex;gap:8px;">
+                                <button id="btn-check-current" onclick="checkCurrentProxies()"
+                                    style="background:var(--tg-blue);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;">
+                                    🔍 فحص الحالية
+                                </button>
+                                <button onclick="clearAllProxies()"
+                                    style="background:var(--tg-danger);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;">
+                                    🗑️ مسح الكل
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- القائمة الحالية -->
+                        <div style="background:var(--tg-hover);border-radius:10px;padding:12px;margin-bottom:16px;">
+                            <div style="font-size:13px;color:var(--tg-text-secondary);margin-bottom:8px;">📋 البروكسيات
+                                الحالية</div>
+                            <div id="proxy-current-list"
+                                style="max-height:220px;overflow-y:auto;border-radius:6px;background:var(--tg-input-bg);">
+                                <div style="text-align:center;padding:20px;color:var(--tg-text-secondary);">جاري
+                                    التحميل...</div>
+                            </div>
+                        </div>
+
+                        <!-- إضافة بروكسيات جديدة -->
+                        <div style="background:var(--tg-hover);border-radius:10px;padding:14px;">
+                            <div style="font-size:13px;color:var(--tg-text-secondary);margin-bottom:8px;">➕ إضافة
+                                بروكسيات جديدة (مع فحص تلقائي)</div>
+                            <textarea id="new-proxies-input"
+                                placeholder="socks5://1.2.3.4:1080&#10;socks5://5.6.7.8:1080&#10;http://9.10.11.12:8080&#10;..."
+                                style="width:100%;height:140px;background:var(--tg-input-bg);border:1px solid var(--tg-border);border-radius:8px;color:var(--tg-text);padding:10px;font-size:13px;font-family:monospace;resize:vertical;box-sizing:border-box;"></textarea>
+                            <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+                                <button id="btn-add-check" onclick="addAndCheckProxies()"
+                                    style="background:var(--tg-success);color:#fff;border:none;padding:9px 20px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">
+                                    🚀 فحص وإضافة الشاغل
+                                </button>
+                                <span style="font-size:12px;color:var(--tg-text-secondary);">يتم فحصها أولاً ثم إضافة
+                                    العاملة فقط للقائمة</span>
+                            </div>
+                        </div>
+
+                        <!-- صندوق النتيجة -->
+                        <div id="proxy-result-box"></div>
+                    </div>
+                </div>
+
+            </div><!-- end div.content -->
         </div>
     </div>
 
+    <!-- ─── قسم البروكسيات ───────────────────────────────────────────────── -->
+    <!-- (مُدرَج خارج div.content الرئيسي ليراه showSection) -->
+
     <script>
+        /* ===== تبديل الأقسام ===== */
         function showSection(id) {
             document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-
             document.getElementById(id).classList.add('active');
             event.target.classList.add('active');
         }
+
+        /* ===== أدوات مساعدة ===== */
+        function setLoading(btn, text) {
+            btn.disabled = true;
+            btn._orig = btn.innerHTML;
+            btn.innerHTML = `<span style="animation:spin 1s linear infinite;display:inline-block">⟳</span> ${text}`;
+        }
+        function resetBtn(btn) {
+            btn.disabled = false;
+            btn.innerHTML = btn._orig;
+        }
+
+        /* ===== تحميل عدد البروكسيات عند الفتح ===== */
+        function loadProxyCount() {
+            fetch('/proxies/list')
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('proxies-count-badge').textContent = d.count;
+                    renderProxyList(d.proxies);
+                }).catch(() => { });
+        }
+
+        function renderProxyList(proxies) {
+            const cont = document.getElementById('proxy-current-list');
+            if (!proxies.length) {
+                cont.innerHTML = '<div style="text-align:center;padding:30px;color:var(--tg-text-secondary);">لا توجد بروكسيات. أضف قائمة جديدة أدناه.</div>';
+                return;
+            }
+            cont.innerHTML = proxies.map((p, i) =>
+                `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid rgba(43,82,120,0.15);">
+                    <span style="color:var(--tg-text-secondary);font-size:11px;min-width:28px;">#${i + 1}</span>
+                    <code style="flex:1;font-size:12px;color:var(--tg-blue)">${p}</code>
+                </div>`
+            ).join('');
+        }
+
+        /* ===== فحص البروكسيات الحالية ===== */
+        function checkCurrentProxies() {
+            const btn = document.getElementById('btn-check-current');
+            setLoading(btn, 'جاري الفحص...');
+            document.getElementById('proxy-result-box').innerHTML = '';
+
+            fetch('/proxies/check_current', { method: 'POST' })
+                .then(r => r.json())
+                .then(d => {
+                    resetBtn(btn);
+                    if (!d.ok) {
+                        showResult('error', d.msg);
+                        return;
+                    }
+                    document.getElementById('proxies-count-badge').textContent = d.working;
+                    showResult('success',
+                        `✅ الفحص اكتمل!\n` +
+                        `▸ إجمالي: ${d.total}  |  ✅ يعمل: ${d.working}  |  ❌ ميت: ${d.dead}\n` +
+                        `▸ تم حذف ${d.dead} بروكسي ميت وحفظ ${d.working} شاغل.`
+                    );
+                    renderProxyList(d.working_list);
+                }).catch(e => { resetBtn(btn); showResult('error', 'فشل الاتصال بالخادم'); });
+        }
+
+        /* ===== إضافة وفحص بروكسيات جديدة ===== */
+        function addAndCheckProxies() {
+            const btn = document.getElementById('btn-add-check');
+            const textarea = document.getElementById('new-proxies-input');
+            const raw = textarea.value.trim();
+            if (!raw) { showResult('error', 'أدخل بروكسيات في الحقل أولاً'); return; }
+
+            setLoading(btn, 'جاري الفحص...');
+            document.getElementById('proxy-result-box').innerHTML = '';
+
+            const fd = new FormData();
+            fd.append('new_proxies', raw);
+
+            fetch('/proxies/add_and_check', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(d => {
+                    resetBtn(btn);
+                    if (!d.ok) { showResult('error', d.msg); return; }
+                    textarea.value = '';
+                    document.getElementById('proxies-count-badge').textContent = d.total_after;
+                    showResult('success',
+                        `✅ تم!\n` +
+                        `▸ تم فحص: ${d.checked}  |  ✅ يعمل: ${d.working}  |  ❌ ميت: ${d.dead}\n` +
+                        `▸ إجمالي البروكسيات الآن: ${d.total_after}`
+                    );
+                    loadProxyCount();
+                }).catch(e => { resetBtn(btn); showResult('error', 'فشل الاتصال بالخادم'); });
+        }
+
+        /* ===== مسح كل البروكسيات ===== */
+        function clearAllProxies() {
+            if (!confirm('هل تريد مسح كل البروكسيات؟')) return;
+            fetch('/proxies/clear', { method: 'POST' })
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('proxies-count-badge').textContent = '0';
+                    renderProxyList([]);
+                    showResult('success', '✅ تم مسح جميع البروكسيات');
+                });
+        }
+
+        /* ===== عرض نتيجة ===== */
+        function showResult(type, msg) {
+            const color = type === 'success' ? 'var(--tg-success)' : 'var(--tg-danger)';
+            const bg = type === 'success' ? 'rgba(76,175,80,0.1)' : 'rgba(229,57,53,0.1)';
+            document.getElementById('proxy-result-box').innerHTML =
+                `<pre style="background:${bg};border:1px solid ${color};border-radius:8px;padding:14px;color:${color};font-size:13px;white-space:pre-wrap;margin-top:14px;">${msg}</pre>`;
+        }
+
+        /* تحميل العدد عند بدء الصفحة */
+        window.addEventListener('DOMContentLoaded', loadProxyCount);
+
+        /* CSS animation للأيقونة الدوارة */
+        document.head.insertAdjacentHTML('beforeend',
+            '<style>@keyframes spin{to{transform:rotate(360deg)}}</style>'
+        );
     </script>
 
 </body>

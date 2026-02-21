@@ -5,6 +5,8 @@ import os
 import asyncio
 import threading
 import logging
+import requests as http_requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from telegram import Update
@@ -74,6 +76,118 @@ def clear_errors():
     database.clear_errors()
     flash("تم مسح سجل الأخطاء", "success")
     return redirect(url_for("dashboard") + "#errors-section")
+
+
+# ─── دوال مساعدة للبروكسيات ──────────────────────────────────────────────────
+_PROXY_TEST_URL = "https://httpbin.org/ip"
+_PROXY_TIMEOUT  = 8
+
+
+def _read_proxy_file() -> list[str]:
+    """قراءة قائمة البروكسيات من الملف."""
+    path = config.PROXY_LIST_FILE
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8", errors="ignore") as f:
+        return [l.strip() for l in f if l.strip() and not l.startswith("#")]
+
+
+def _write_proxy_file(proxies: list[str]) -> None:
+    """كتابة قائمة البروكسيات للملف (بدون تكرار)."""
+    unique = list(dict.fromkeys(proxies))   # حفظ الترتيب مع إزالة المكررات
+    with open(config.PROXY_LIST_FILE, "w", encoding="utf-8") as f:
+        f.write("\n".join(unique) + ("\n" if unique else ""))
+
+
+def _check_single_proxy(proxy: str) -> bool:
+    """فحص بروكسي واحد - يُعيد True إذا كان يعمل."""
+    p = proxy.strip()
+    if not p.startswith(("http://", "https://", "socks4://", "socks5://")):
+        p = "http://" + p
+    try:
+        r = http_requests.get(
+            _PROXY_TEST_URL,
+            proxies={"http": p, "https": p},
+            timeout=_PROXY_TIMEOUT,
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def _check_proxies_list(proxies: list[str], max_workers: int = 50) -> dict:
+    """فحص قائمة من البروكسيات وإعادة نتائجها."""
+    working, dead = [], []
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(proxies) or 1)) as pool:
+        future_to_proxy = {pool.submit(_check_single_proxy, p): p for p in proxies}
+        for fut in as_completed(future_to_proxy):
+            proxy = future_to_proxy[fut]
+            if fut.result():
+                working.append(proxy)
+            else:
+                dead.append(proxy)
+    return {"working": working, "dead": dead}
+
+
+# ─── مسارات البروكسيات ───────────────────────────────────────────────────────
+@app.route("/proxies/list")
+def proxies_list():
+    """إعادة القائمة الحالية كـ JSON."""
+    proxies = _read_proxy_file()
+    return jsonify({"proxies": proxies, "count": len(proxies)})
+
+
+@app.route("/proxies/check_current", methods=["POST"])
+def proxies_check_current():
+    """فحص البروكسيات الحالية وإزالة الميتة منها."""
+    current = _read_proxy_file()
+    if not current:
+        return jsonify({"ok": False, "msg": "القائمة فارغة"})
+    results = _check_proxies_list(current)
+    _write_proxy_file(results["working"])
+    return jsonify({
+        "ok": True,
+        "total":   len(current),
+        "working": len(results["working"]),
+        "dead":    len(results["dead"]),
+        "working_list": results["working"],
+    })
+
+
+@app.route("/proxies/add_and_check", methods=["POST"])
+def proxies_add_and_check():
+    """
+    استقبال قائمة بروكسيات جديدة، فحصها،
+    ثم دمج الشاغلة منها مع القائمة الموجودة.
+    """
+    raw = request.form.get("new_proxies", "").strip()
+    if not raw:
+        return jsonify({"ok": False, "msg": "لم تُرسَل أي بروكسيات"})
+
+    new_candidates = [l.strip() for l in raw.splitlines() if l.strip() and not l.startswith("#")]
+    if not new_candidates:
+        return jsonify({"ok": False, "msg": "لا توجد بروكسيات صالحة في النص"})
+
+    results      = _check_proxies_list(new_candidates)
+    current      = _read_proxy_file()
+    merged       = current + results["working"]
+    _write_proxy_file(merged)
+
+    return jsonify({
+        "ok":      True,
+        "checked": len(new_candidates),
+        "working": len(results["working"]),
+        "dead":    len(results["dead"]),
+        "total_after": len(list(dict.fromkeys(merged))),
+        "working_list": results["working"],
+    })
+
+
+@app.route("/proxies/clear", methods=["POST"])
+def proxies_clear():
+    """مسح كل البروكسيات."""
+    _write_proxy_file([])
+    return jsonify({"ok": True, "msg": "تم مسح قائمة البروكسيات"})
 
 
 
