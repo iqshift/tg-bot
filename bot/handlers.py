@@ -8,6 +8,7 @@ bot/handlers.py - معالجات بوت Telegram
 """
 import asyncio
 import logging
+import os
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -131,8 +132,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 chat_id=chat_id, message_id=status_msg.message_id, text=msg_complete
             )
 
-            with open(file_path, "rb") as video_file:
-                await context.bot.send_video(chat_id=chat_id, video=video_file, caption=msg_caption)
+            # اكتشاف نوع الملف وإرساله بالطريقة المناسبة
+            ext = os.path.splitext(file_path)[1].lower()
+            with open(file_path, "rb") as media_file:
+                if ext in (".jpg", ".jpeg", ".png", ".webp"):
+                    await context.bot.send_photo(
+                        chat_id=chat_id, photo=media_file, caption=msg_caption
+                    )
+                elif ext == ".gif":
+                    await context.bot.send_animation(
+                        chat_id=chat_id, animation=media_file, caption=msg_caption
+                    )
+                else:
+                    await context.bot.send_video(
+                        chat_id=chat_id, video=media_file, caption=msg_caption
+                    )
 
             # حذف فوري لتوفير مساحة القرص
             downloader.cleanup(file_path)
