@@ -9,3 +9,7 @@ logs/
 users.db
 external_tools/
 .env
+# بروكسيات (تتغير - لا تُرفع)
+working_socks5.txt
+working_socks4.txt
+working_http.txt
