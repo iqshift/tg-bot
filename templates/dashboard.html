@@ -513,6 +513,10 @@
                     <div class="stat"><strong>{{ stats.total_users }}</strong> مشترك</div>
                     <div class="stat"><strong>{{ stats.active_24h }}</strong> نشط اليوم</div>
                     <div class="stat"><strong>{{ stats.banned_users }}</strong> محظور</div>
+                    <div class="stat"
+                        style="{% if stats.total_errors > 0 %}background:rgba(229,57,53,0.15);{% endif %}">
+                        <strong style="color: var(--tg-danger);">{{ stats.total_errors }}</strong> خطأ
+                    </div>
                 </div>
             </div>
 
@@ -521,6 +525,10 @@
                 <button class="tab" onclick="showSection('users')">المستخدمين</button>
                 <button class="tab" onclick="showSection('settings')">الإعدادات</button>
                 <button class="tab" onclick="showSection('channels')">القنوات الإجبارية</button>
+                <button class="tab" onclick="showSection('errors-section')"
+                    style="{% if stats.total_errors > 0 %}color: var(--tg-danger);{% endif %}">
+                    سجل الأخطاء {% if stats.total_errors > 0 %}({{ stats.total_errors }}){% endif %}
+                </button>
             </div>
 
             <div class="content">
@@ -655,6 +663,85 @@
                         </ul>
                     </div>
                 </div>
+
+                <!-- Error Logs Section -->
+                <div id="errors-section" class="section">
+                    <div class="card">
+                        <h3 style="display:flex; justify-content:space-between; align-items:center;">
+                            <span>🔴 سجل الأخطاء</span>
+                            <form action="/errors/clear" method="POST" style="margin:0;">
+                                <button class="btn btn-danger" style="font-size:12px; padding:6px 14px;"
+                                    onclick="return confirm('هل أنت متأكد من مسح جميع الأخطاء؟')">
+                                    🗑️ مسح الكل
+                                </button>
+                            </form>
+                        </h3>
+                        {% if errors %}
+                        <div style="overflow-x:auto; margin-top:10px;">
+                            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                                <thead>
+                                    <tr style="background:var(--tg-hover); color:var(--tg-text-secondary);">
+                                        <th
+                                            style="padding:10px 12px; text-align:right; border-bottom:1px solid var(--tg-border);">
+                                            الوقت</th>
+                                        <th
+                                            style="padding:10px 12px; text-align:right; border-bottom:1px solid var(--tg-border);">
+                                            المنصة</th>
+                                        <th
+                                            style="padding:10px 12px; text-align:right; border-bottom:1px solid var(--tg-border);">
+                                            المستخدم</th>
+                                        <th
+                                            style="padding:10px 12px; text-align:right; border-bottom:1px solid var(--tg-border);">
+                                            الرابط</th>
+                                        <th
+                                            style="padding:10px 12px; text-align:right; border-bottom:1px solid var(--tg-border);">
+                                            تفاصيل الخطأ</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for err in errors %}
+                                    <tr style="border-bottom:1px solid rgba(43,82,120,0.2); transition:background 0.2s;"
+                                        onmouseover="this.style.background='var(--tg-hover)'"
+                                        onmouseout="this.style.background='transparent'">
+                                        <td
+                                            style="padding:10px 12px; color:var(--tg-text-secondary); white-space:nowrap;">
+                                            {{ err.timestamp }}</td>
+                                        <td style="padding:10px 12px;">
+                                            <span
+                                                style="background:rgba(82,136,193,0.15); padding:3px 8px; border-radius:8px; font-size:12px;">{{
+                                                err.platform }}</span>
+                                        </td>
+                                        <td style="padding:10px 12px; color:var(--tg-blue);">{{ err.user_id or '-' }}
+                                        </td>
+                                        <td
+                                            style="padding:10px 12px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                            <a href="{{ err.url }}" target="_blank"
+                                                style="color:var(--tg-text-secondary); text-decoration:none;"
+                                                title="{{ err.url }}">{{ err.url[:50] }}...</a>
+                                        </td>
+                                        <td style="padding:10px 12px; max-width:300px;">
+                                            <details>
+                                                <summary
+                                                    style="cursor:pointer; color:var(--tg-danger); font-size:12px;">عرض
+                                                    الخطأ</summary>
+                                                <pre
+                                                    style="margin-top:8px; background:var(--tg-input-bg); padding:10px; border-radius:6px; font-size:11px; overflow-x:auto; white-space:pre-wrap; color:#ff8a80;">{{ err.error_msg }}</pre>
+                                            </details>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div style="text-align:center; padding:40px; color:var(--tg-text-secondary);">
+                            <div style="font-size:48px; margin-bottom:12px;">✅</div>
+                            <div>لا توجد أخطاء مسجلة - كل شيء يعمل بشكل ممتاز!</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>

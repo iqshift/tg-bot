@@ -80,6 +80,19 @@ def init_db() -> None:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_active ON users(last_active)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, timestamp)")
 
+        # ─── جدول سجل الأخطاء ────────────────────────────────────────────────
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS error_logs (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER,
+                platform   TEXT,
+                url        TEXT,
+                error_msg  TEXT,
+                timestamp  TEXT
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_errors_ts ON error_logs(timestamp)")
+
         defaults = {
             "welcome_msg":      "أهلاً بك في بوت التحميل. أرسل الرابط فقط.",
             "help_msg":         "أرسل رابط الفيديو من انستجرام، فيسبوك، أو تيك توك.",
@@ -214,4 +227,38 @@ def get_stats() -> dict:
     time_24h = (datetime.datetime.now() - datetime.timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute("SELECT COUNT(*) FROM users WHERE last_active >= ?", (time_24h,))
     active_24h = cursor.fetchone()[0]
-    return {"total_users": total, "banned_users": banned, "active_24h": active_24h}
+    cursor.execute("SELECT COUNT(*) FROM error_logs")
+    total_errors = cursor.fetchone()[0]
+    return {"total_users": total, "banned_users": banned, "active_24h": active_24h, "total_errors": total_errors}
+
+
+# ─── سجل الأخطاء ─────────────────────────────────────────────────────────────
+def log_error(user_id: int | None, platform: str, url: str, error_msg: str) -> None:
+    """تسجيل خطأ في قاعدة البيانات."""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _write_lock:
+        conn   = _get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO error_logs (user_id, platform, url, error_msg, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (user_id, platform, url, error_msg, timestamp),
+        )
+        conn.commit()
+
+
+def get_errors(limit: int = 100) -> list[dict]:
+    """جلب آخر الأخطاء المسجلة."""
+    conn   = _get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM error_logs ORDER BY timestamp DESC LIMIT ?", (limit,)
+    )
+    return [dict(r) for r in cursor.fetchall()]
+
+
+def clear_errors() -> None:
+    """مسح جميع سجلات الأخطاء."""
+    with _write_lock:
+        conn   = _get_conn()
+        conn.execute("DELETE FROM error_logs")
+        conn.commit()

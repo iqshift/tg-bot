@@ -50,6 +50,7 @@ def telegram_webhook():
 def dashboard():
     stats = database.get_stats()
     users = database.get_all_users()
+    errors = database.get_errors(limit=100)
     settings_keys = [
         "welcome_msg", "help_msg", "msg_analyzing", "msg_routing",
         "msg_complete", "msg_error", "msg_banned", "msg_caption",
@@ -61,10 +62,19 @@ def dashboard():
         "dashboard.html",
         stats=stats,
         users=users,
+        errors=errors,
         settings=settings,
         channels_list=channels_list,
         bot_token=config.TELEGRAM_TOKEN,
     )
+
+
+@app.route("/errors/clear", methods=["POST"])
+def clear_errors():
+    database.clear_errors()
+    flash("تم مسح سجل الأخطاء", "success")
+    return redirect(url_for("dashboard") + "#errors-section")
+
 
 
 @app.route("/chat/<int:user_id>")

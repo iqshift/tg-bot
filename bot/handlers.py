@@ -140,17 +140,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         except Exception as exc:
             logger.error("فشل التحميل [%s]: %s", platform, exc)
-            error_text = msg_error
-            if "{error}" in error_text:
-                error_text = error_text.replace("{error}", str(exc))
-            else:
-                error_text += f"\nDetailed Error: {exc}"
+            # ─ تسجيل الخطأ في قاعدة البيانات (يظهر في لوحة التحكم) ─
+            database.log_error(user.id, platform, url, str(exc))
+            # ─ رسالة عامة للمستخدم (بدون تفاصيل تقنية) ─────────────
+            friendly_msg = "⚠️ حدث خطأ غير متوقع.\nجاري العمل على إصلاحه. حاول مرة أخرى لاحقاً."
             try:
                 await context.bot.edit_message_text(
-                    chat_id=chat_id, message_id=status_msg.message_id, text=error_text
+                    chat_id=chat_id, message_id=status_msg.message_id, text=friendly_msg
                 )
             except Exception:
                 pass
+
 
 
 # ─── دوال مساعدة ─────────────────────────────────────────────────────────────
