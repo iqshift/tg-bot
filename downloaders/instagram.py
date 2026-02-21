@@ -32,4 +32,10 @@ class InstagramDownloader(BaseDownloader):
                 "⚠️ ملف كوكيز Instagram غير موجود في: %s", config.INSTAGRAM_COOKIES
             )
 
-        return self._download(url, extra_opts=opts)
+        try:
+            return self._download(url, extra_opts=opts)
+        except Exception as exc:
+            err_str = str(exc)
+            if "No video formats found" in err_str:
+                raise ValueError("هذا المنشور يحتوي على صورة فقط - البوت يدعم الفيديو فقط") from exc
+            raise
