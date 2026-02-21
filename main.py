@@ -2,15 +2,14 @@
 main.py - نقطة الدخول الرئيسية
 ────────────────────────────────────────
 المعمارية:
-  - Flask يعمل على 0.0.0.0:8080 (Cloud Run)
+  - Flask يبدأ أولاً على PORT=8080 (Cloud Run health check)
+  - البوت يتهيأ في الخلفية بعد ذلك
   - Flask يستقبل Telegram updates على /webhook
   - Flask يخدم لوحة التحكم على /
-  - PTB Application يعمل في خيط خلفي بـ event loop خاص
 """
 import asyncio
 import threading
 import logging
-import time
 import os
 
 import config
@@ -70,9 +69,11 @@ def run_bot_in_thread(app):
     """تشغيل event loop الخاص بالبوت في خيط منفصل."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    # مشاركة الـ loop مع Flask لمعالجة التحديثات
     web_server.bot_loop = loop
-    loop.run_until_complete(init_bot(app))
+    try:
+        loop.run_until_complete(init_bot(app))
+    except Exception as exc:
+        logger.error("❌ Bot thread failed: %s", exc)
 
 
 # ─── نقطة الدخول ─────────────────────────────────────────────────────────────
@@ -84,20 +85,21 @@ if __name__ == "__main__":
     # مشاركة الـ application مع Flask
     web_server.bot_app = application
 
-    # تشغيل البوت في الخلفية
+    # تشغيل البوت في الخلفية (لا ننتظره)
     bot_thread = threading.Thread(
         target=run_bot_in_thread, args=(application,), daemon=True
     )
     bot_thread.start()
+    logger.info("🤖 Bot thread started in background")
 
-    # انتظر تهيئة البوت قبل قبول الطلبات
-    time.sleep(3)
-    logger.info("🤖 Bot initialized | Starting Flask on 0.0.0.0:%d", config.WEBHOOK_PORT)
-
-    # تشغيل Flask على port 8080 (Cloud Run)
+    # ✅ Flask يبدأ فوراً بدون انتظار البوت
+    # Cloud Run يحتاج الـ port مفتوح خلال ثواني قليلة
+    port = config.WEBHOOK_PORT
+    logger.info("🌐 Starting Flask on 0.0.0.0:%d", port)
     web_server.app.run(
         host="0.0.0.0",
-        port=config.WEBHOOK_PORT,
+        port=port,
         debug=False,
         use_reloader=False,
+        threaded=True,
     )
