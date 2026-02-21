@@ -46,9 +46,10 @@ DB_PATH: str = os.path.join(BASE_DIR, "data", "users.db")
 # ─── Downloads ────────────────────────────────────────────────────────────────
 DOWNLOADS_DIR: str = os.path.join(BASE_DIR, "downloads")
 
-# ─── Cookies (في مجلد secrets/) ───────────────────────────────────────────────
-INSTAGRAM_COOKIES: str = os.path.join(SECRETS_DIR, "instagram_cookies.txt")
-TIKTOK_COOKIES: str    = os.path.join(SECRETS_DIR, "tiktok_cookies.txt")
+# ─── Cookies (في data/cookies/ حتى يصلها Docker) ─────────────────────────────
+COOKIES_DIR: str       = os.path.join(BASE_DIR, "data", "cookies")
+INSTAGRAM_COOKIES: str = os.path.join(COOKIES_DIR, "instagram_cookies.txt")
+TIKTOK_COOKIES: str    = os.path.join(COOKIES_DIR, "tiktok_cookies.txt")
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 LOG_FILE: str = os.path.join(BASE_DIR, "logs", "bot.log")
