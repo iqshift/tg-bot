@@ -72,12 +72,14 @@ if __name__ == "__main__":
 
     if config.WEBHOOK_URL:
         # ─── وضع Webhook (Cloud Run) ─────────────────────────────────────
-        logger.info("🌐 Webhook mode: %s | Port: %d", config.WEBHOOK_URL, PORT)
+        WEBHOOK_PATH = "/webhook"
+        full_webhook_url = config.WEBHOOK_URL.rstrip("/") + WEBHOOK_PATH
+        logger.info("🌐 Webhook mode: %s | Port: %d", full_webhook_url, PORT)
         application.run_webhook(
             listen="0.0.0.0",
             port=PORT,
-            webhook_url=config.WEBHOOK_URL,
-            url_path="/webhook",
+            webhook_url=full_webhook_url,   # ← الرابط الكامل لـ Telegram
+            url_path=WEBHOOK_PATH,          # ← المسار المحلي للاستقبال
             allowed_updates=["message"],
         )
     else:
