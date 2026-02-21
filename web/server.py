@@ -83,22 +83,6 @@ _PROXY_TEST_URL = "https://httpbin.org/ip"
 _PROXY_TIMEOUT  = 8
 
 
-def _read_proxy_file() -> list[str]:
-    """قراءة قائمة البروكسيات من الملف."""
-    path = config.PROXY_LIST_FILE
-    if not os.path.exists(path):
-        return []
-    with open(path, encoding="utf-8", errors="ignore") as f:
-        return [l.strip() for l in f if l.strip() and not l.startswith("#")]
-
-
-def _write_proxy_file(proxies: list[str]) -> None:
-    """كتابة قائمة البروكسيات للملف (بدون تكرار)."""
-    unique = list(dict.fromkeys(proxies))   # حفظ الترتيب مع إزالة المكررات
-    with open(config.PROXY_LIST_FILE, "w", encoding="utf-8") as f:
-        f.write("\n".join(unique) + ("\n" if unique else ""))
-
-
 def _check_single_proxy(proxy: str) -> bool:
     """فحص بروكسي واحد - يُعيد True إذا كان يعمل."""
     p = proxy.strip()
@@ -132,19 +116,19 @@ def _check_proxies_list(proxies: list[str], max_workers: int = 50) -> dict:
 # ─── مسارات البروكسيات ───────────────────────────────────────────────────────
 @app.route("/proxies/list")
 def proxies_list():
-    """إعادة القائمة الحالية كـ JSON."""
-    proxies = _read_proxy_file()
+    """إعادة القائمة الحالية من قاعدة البيانات."""
+    proxies = database.get_proxies()
     return jsonify({"proxies": proxies, "count": len(proxies)})
 
 
 @app.route("/proxies/check_current", methods=["POST"])
 def proxies_check_current():
     """فحص البروكسيات الحالية وإزالة الميتة منها."""
-    current = _read_proxy_file()
+    current = database.get_proxies()
     if not current:
         return jsonify({"ok": False, "msg": "القائمة فارغة"})
     results = _check_proxies_list(current)
-    _write_proxy_file(results["working"])
+    database.set_proxies(results["working"])
     return jsonify({
         "ok": True,
         "total":   len(current),
@@ -156,10 +140,7 @@ def proxies_check_current():
 
 @app.route("/proxies/add_and_check", methods=["POST"])
 def proxies_add_and_check():
-    """
-    استقبال قائمة بروكسيات جديدة، فحصها،
-    ثم دمج الشاغلة منها مع القائمة الموجودة.
-    """
+    """استقبال قائمة بروكسيات جديدة، فحصها، ثم دمج الشاغلة مع الموجودة."""
     raw = request.form.get("new_proxies", "").strip()
     if not raw:
         return jsonify({"ok": False, "msg": "لم تُرسَل أي بروكسيات"})
@@ -168,17 +149,18 @@ def proxies_add_and_check():
     if not new_candidates:
         return jsonify({"ok": False, "msg": "لا توجد بروكسيات صالحة في النص"})
 
-    results      = _check_proxies_list(new_candidates)
-    current      = _read_proxy_file()
-    merged       = current + results["working"]
-    _write_proxy_file(merged)
+    results  = _check_proxies_list(new_candidates)
+    current  = database.get_proxies()
+    merged   = current + results["working"]
+    database.set_proxies(merged)
+    total    = len(database.get_proxies())
 
     return jsonify({
-        "ok":      True,
-        "checked": len(new_candidates),
-        "working": len(results["working"]),
-        "dead":    len(results["dead"]),
-        "total_after": len(list(dict.fromkeys(merged))),
+        "ok":          True,
+        "checked":     len(new_candidates),
+        "working":     len(results["working"]),
+        "dead":        len(results["dead"]),
+        "total_after": total,
         "working_list": results["working"],
     })
 
@@ -186,7 +168,7 @@ def proxies_add_and_check():
 @app.route("/proxies/clear", methods=["POST"])
 def proxies_clear():
     """مسح كل البروكسيات."""
-    _write_proxy_file([])
+    database.set_proxies([])
     return jsonify({"ok": True, "msg": "تم مسح قائمة البروكسيات"})
 
 

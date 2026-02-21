@@ -262,3 +262,32 @@ def clear_errors() -> None:
         conn   = _get_conn()
         conn.execute("DELETE FROM error_logs")
         conn.commit()
+
+
+# ─── إدارة البروكسيات (مخزّنة في settings) ──────────────────────────────────
+_PROXY_SETTING_KEY = "proxy_list"
+
+
+def get_proxies() -> list[str]:
+    """جلب قائمة البروكسيات من قاعدة البيانات."""
+    raw = get_setting(_PROXY_SETTING_KEY, "")
+    if not raw:
+        return []
+    return [p.strip() for p in raw.splitlines() if p.strip()]
+
+
+def set_proxies(proxies: list[str]) -> None:
+    """حفظ قائمة البروكسيات في قاعدة البيانات (بدون تكرار)."""
+    unique = list(dict.fromkeys(p.strip() for p in proxies if p.strip()))
+    # إبطال الـ cache يدوياً لأن البروكسيات تتغير كثيراً
+    with _cache_lock:
+        _settings_cache.pop(_PROXY_SETTING_KEY, None)
+    set_setting(_PROXY_SETTING_KEY, "\n".join(unique))
+
+
+def remove_proxy(proxy: str) -> None:
+    """حذف بروكسي واحد من القائمة."""
+    proxies = get_proxies()
+    updated = [p for p in proxies if p != proxy.strip()]
+    if len(updated) < len(proxies):
+        set_proxies(updated)

@@ -4,20 +4,18 @@ downloaders/instagram.py - وحدة تحميل Instagram
 الميزات:
   - كوكيز للمصادقة
   - Proxy Rotation تلقائي عند rate-limit
+  - استبعاد تلقائي للبروكسي الميت من قاعدة البيانات
 """
 import os
 import random
 import logging
-import threading
 import requests as _requests
 
 import config
+from data import database
 from .base import BaseDownloader
 
 logger = logging.getLogger(__name__)
-
-# قفل لحماية عمليات الكتابة على ملف البروكسيات
-_proxy_file_lock = threading.Lock()
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -39,33 +37,6 @@ def _is_rate_limited(error_msg: str) -> bool:
     """هل الخطأ بسبب rate-limit أو حظر Instagram؟"""
     msg = error_msg.lower()
     return any(kw.lower() in msg for kw in _RATE_LIMIT_KEYWORDS)
-
-
-def _load_proxies() -> list[str]:
-    """تحميل قائمة البروكسيات العاملة من الملف."""
-    path = config.PROXY_LIST_FILE
-    if not os.path.exists(path):
-        logger.warning("⚠️ ملف البروكسيات غير موجود: %s", path)
-        return []
-    with open(path, encoding="utf-8", errors="ignore") as f:
-        proxies = [l.strip() for l in f if l.strip() and not l.startswith("#")]
-    logger.info("📡 تم تحميل %d بروكسي من %s", len(proxies), path)
-    return proxies
-
-
-def _remove_dead_proxy(proxy: str) -> None:
-    """استبعاد بروكسي ميت من الملف (thread-safe)."""
-    path = config.PROXY_LIST_FILE
-    if not os.path.exists(path):
-        return
-    with _proxy_file_lock:
-        with open(path, encoding="utf-8", errors="ignore") as f:
-            lines = [l.strip() for l in f if l.strip() and not l.startswith("#")]
-        updated = [l for l in lines if l != proxy]
-        if len(updated) < len(lines):   # تغيّر شيء
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("\n".join(updated) + ("\n" if updated else ""))
-            logger.info("🗑️ استُبعد بروكسي ميت: %s (تبقى %d)", proxy, len(updated))
 
 
 class InstagramDownloader(BaseDownloader):
@@ -104,11 +75,11 @@ class InstagramDownloader(BaseDownloader):
 
     def _download_with_proxy_rotation(self, url: str, opts: dict) -> str:
         """تدوير البروكسيات حتى ينجح التحميل."""
-        proxies = _load_proxies()
+        proxies = database.get_proxies()
         if not proxies:
             raise ValueError(
                 "🚫 Instagram محجوب مؤقتاً ولا توجد بروكسيات - "
-                "حدّث working_socks5.txt أو انتظر قليلاً"
+                "أضف بروكسيات من لوحة التحكم > قسم البروكسيات"
             )
 
         # خلط العشوائي لتوزيع الحِمل
@@ -129,8 +100,8 @@ class InstagramDownloader(BaseDownloader):
                     return self._download_image(url, proxy_opts)
                 last_error = exc
                 logger.debug("❌ فشل البروكسي %s: %s", proxy, exc)
-                # ✅ استبعاد البروكسي الميت تلقائياً من الملف
-                _remove_dead_proxy(proxy)
+                # ✅ استبعاد البروكسي الميت تلقائياً من قاعدة البيانات
+                database.remove_proxy(proxy)
                 continue
 
         raise ValueError(
