@@ -1,12 +1,14 @@
 """
-data/database.py - طبقة قاعدة البيانات Google Firestore
-البيانات دائمة لا تُحذف عند إعادة نشر Cloud Run.
-نفس واجهة الدوال (function signatures) كما كانت في SQLite.
+data/database.py - طبقة قاعدة البيانات (هجين)
+  - Google Firestore  → المستخدمون + الإعدادات + البروكسيات + الأخطاء  (دائم)
+  - SQLite محلي       → سجل المحادثات فقط                              (مؤقت / سريع)
 """
 import datetime
 import logging
+import sqlite3
 import threading
 
+import config
 from google.cloud import firestore
 
 logger = logging.getLogger(__name__)
@@ -29,11 +31,38 @@ def _get_db() -> firestore.Client:
     return _db
 
 
-# ─── اختصارات Collections ─────────────────────────────────────────────────────
+# ─── اختصارات Collections (Firestore) ───────────────────────────────────────
 def _col_users():    return _get_db().collection("users")
 def _col_settings(): return _get_db().collection("settings")
 def _col_errors():   return _get_db().collection("error_logs")
-def _col_messages(): return _get_db().collection("messages")
+
+
+# ─── SQLite للمحادثات (مؤقت / سريع) ──────────────────────────────────────────
+_sqlite_local = threading.local()
+_sqlite_write_lock = threading.Lock()
+
+
+def _get_sqlite():
+    """اتصال SQLite مخصص لكل خيط للمحادثات فقط."""
+    import os
+    if not hasattr(_sqlite_local, "conn") or _sqlite_local.conn is None:
+        os.makedirs(os.path.dirname(config.DB_PATH), exist_ok=True)
+        conn = sqlite3.connect(config.DB_PATH, check_same_thread=False, timeout=10)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER,
+                message_type TEXT,
+                message_text TEXT,
+                timestamp    TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_msg_user ON messages(user_id, timestamp)")
+        conn.commit()
+        _sqlite_local.conn = conn
+    return _sqlite_local.conn
 
 
 # ─── القيم الافتراضية ─────────────────────────────────────────────────────────
@@ -169,22 +198,26 @@ def get_all_users() -> list[dict]:
     return result
 
 
-# ─── الرسائل ─────────────────────────────────────────────────────────────────
+# ─── الرسائل (SQLite - مؤقت/سريع) ──────────────────────────────────────────
 def log_message(user_id: int, message_type: str, message_text: str) -> None:
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    _col_messages().add({
-        "user_id":      user_id,
-        "message_type": message_type,
-        "message_text": message_text,
-        "timestamp":    now,
-    })
+    with _sqlite_write_lock:
+        conn = _get_sqlite()
+        conn.execute(
+            "INSERT INTO messages (user_id, message_type, message_text, timestamp) VALUES (?,?,?,?)",
+            (user_id, message_type, message_text, now),
+        )
+        conn.commit()
 
 
 def get_user_messages(user_id: int, limit: int = 50) -> list[dict]:
-    """جلب رسائل مستخدم - يُرتّب في Python لتجنّب Firestore composite index."""
-    docs   = _col_messages().where("user_id", "==", user_id).stream()
-    result = sorted([d.to_dict() for d in docs], key=lambda x: x.get("timestamp", ""))
-    return result[-limit:]
+    conn   = _get_sqlite()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM messages WHERE user_id=? ORDER BY timestamp DESC LIMIT ?",
+        (user_id, limit),
+    )
+    return [dict(r) for r in reversed(cursor.fetchall())]
 
 
 # ─── الإعدادات ───────────────────────────────────────────────────────────────
