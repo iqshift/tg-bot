@@ -993,7 +993,43 @@
                     </div>
                 </div>
 
-                <!-- Proxies Section (Already Exists Above) -->
+                <!-- Proxies Section -->
+                <div id="proxies-section" class="section">
+                    <div class="card glass">
+                        <div class="card-header">
+                            <h3 class="card-title">إدارة تدوير البروكسيات</h3>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-outline" onclick="checkCurrentProxies()" id="btn-check-current">
+                                    <i class="fa-solid fa-magnifying-glass"></i> فحص القائمة
+                                </button>
+                                <button class="btn btn-danger" onclick="clearAllProxies()">
+                                    <i class="fa-solid fa-broom"></i> مسح الكل
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                            <div>
+                                <label>إضافة بروكسيات جديدة (Line by Line)</label>
+                                <textarea id="new-proxies-input" rows="8"
+                                    placeholder="socks5://user:pass@host:port&#10;http://host:port"></textarea>
+                                <button class="btn btn-primary" onclick="addAndCheckProxies()" id="btn-add-check"
+                                    style="width: 100%; margin-top: 12px;">
+                                    <i class="fa-solid fa-plus"></i> إضافة وفحص الشاغل
+                                </button>
+                            </div>
+                            <div
+                                style="background: rgba(15, 23, 42, 0.4); border-radius: 20px; padding: 20px; border: 1px solid var(--border);">
+                                <label>القائمة الحالية (<span id="proxies-count-badge">0</span>)</label>
+                                <div id="proxy-current-list"
+                                    style="max-height: 250px; overflow-y: auto; font-family: monospace; font-size: 13px; color: var(--primary-light);">
+                                    جاري جلب البيانات...
+                                </div>
+                            </div>
+                        </div>
+                        <div id="proxy-result-box" style="margin-top: 20px;"></div>
+                    </div>
+                </div>
 
                 <!-- Whitelist Section -->
                 <div id="whitelist-section" class="section">
