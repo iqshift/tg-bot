@@ -67,6 +67,11 @@ async def init_bot(app):
 
 def run_bot_in_thread(app):
     """تشغيل event loop الخاص بالبوت في خيط منفصل."""
+    # ✅ init_db هنا بدلاً من قبل Flask - حتى لا يعطّل بدء الخادم
+    try:
+        database.init_db()
+    except Exception as exc:
+        logger.error("❌ DB init failed: %s", exc)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     web_server.bot_loop = loop
@@ -78,8 +83,6 @@ def run_bot_in_thread(app):
 
 # ─── نقطة الدخول ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    database.init_db()
-
     application = build_application()
 
     # مشاركة الـ application مع Flask
