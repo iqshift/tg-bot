@@ -103,14 +103,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(msg)
         return
 
-    # فحص اشتراك القنوات
-    if not await _check_subscriptions(update, context, user.id, chat_id):
-        return
+    # فحص القائمة البيضاء (Exemption)
+    whitelist_entry = database.get_whitelisted(user.id)
+    is_whitelisted  = whitelist_entry is not None
+
+    # فحص اشتراك القنوات (يتخطى إذا كان في القائمة البيضاء)
+    if not is_whitelisted:
+        if not await _check_subscriptions(update, context, user.id, chat_id):
+            return
 
     # ----- التحميل -----
     downloader, platform = _get_downloader(url)
 
-    msg_analyzing = database.get_setting("msg_analyzing", "جاري التحليل... 🔍")
+    # تخصيص الرد لمستخدمي القائمة البيضاء
+    custom_reply = whitelist_entry.get("custom_reply") if is_whitelisted else None
+    
+    msg_analyzing = custom_reply if custom_reply else database.get_setting("msg_analyzing", "جاري التحليل... 🔍")
     msg_routing   = database.get_setting("msg_routing",   "توجيه إلى {platform}... 🔄").replace("{platform}", platform)
     msg_complete  = database.get_setting("msg_complete",  "تم التحميل! جاري الرفع... 📤")
     msg_error     = database.get_setting("msg_error",     "فشل التحميل ({platform}) ❌").replace("{platform}", platform)

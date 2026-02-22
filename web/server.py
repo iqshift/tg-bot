@@ -60,6 +60,7 @@ def dashboard():
     ]
     settings      = {k: database.get_setting(k) for k in settings_keys}
     channels_list = [c.strip() for c in (settings["required_channels"] or "").split(",") if c.strip()]
+    whitelist = database.get_all_whitelist()
     return render_template(
         "dashboard.html",
         stats=stats,
@@ -67,6 +68,7 @@ def dashboard():
         errors=errors,
         settings=settings,
         channels_list=channels_list,
+        whitelist=whitelist,
         bot_token=config.TELEGRAM_TOKEN,
     )
 
@@ -316,3 +318,27 @@ def broadcast():
     else:
         flash("البوت غير متصل", "error")
     return redirect(url_for("dashboard"))
+@app.route("/whitelist/add", methods=["POST"])
+def add_to_whitelist():
+    user_id      = request.form.get("user_id", "").strip()
+    custom_reply = request.form.get("custom_reply", "").strip()
+    if not user_id:
+        flash("الرجاء إدخال معرف المستخدم", "error")
+        return redirect(url_for("dashboard") + "#whitelist-section")
+    
+    try:
+        database.add_to_whitelist(int(user_id), custom_reply)
+        flash(f"تم إضافة {user_id} للقائمة البيضاء", "success")
+    except ValueError:
+        flash("معرف المستخدم يجب أن يكون رقماً", "error")
+    
+    return redirect(url_for("dashboard") + "#whitelist-section")
+
+
+@app.route("/whitelist/delete", methods=["POST"])
+def delete_from_whitelist():
+    user_id = request.form.get("user_id", "").strip()
+    if user_id:
+        database.remove_from_whitelist(int(user_id))
+        flash(f"تم إزالة {user_id} من القائمة البيضاء", "success")
+    return redirect(url_for("dashboard") + "#whitelist-section")

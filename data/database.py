@@ -35,6 +35,7 @@ def _get_db() -> firestore.Client:
 def _col_users():    return _get_db().collection("users")
 def _col_settings(): return _get_db().collection("settings")
 def _col_errors():   return _get_db().collection("error_logs")
+def _col_whitelist(): return _get_db().collection("whitelist")
 
 
 # ─── SQLite للمحادثات (مؤقت / سريع) ──────────────────────────────────────────
@@ -247,12 +248,14 @@ def get_stats() -> dict:
         datetime.datetime.now() - datetime.timedelta(hours=24)
     ).strftime("%Y-%m-%d %H:%M:%S")
     active_24h   = sum(1 for u in users if u.get("last_active", "") >= threshold)
-    total_errors = sum(1 for _ in _col_errors().limit(9999).stream())
+    total_errors    = sum(1 for _ in _col_errors().limit(9999).stream())
+    whitelist_count = sum(1 for _ in _col_whitelist().limit(9999).stream())
     return {
-        "total_users":  total,
-        "banned_users": banned,
-        "active_24h":   active_24h,
-        "total_errors": total_errors,
+        "total_users":     total,
+        "banned_users":    banned,
+        "active_24h":      active_24h,
+        "total_errors":    total_errors,
+        "whitelist_count": whitelist_count,
     }
 
 
@@ -304,3 +307,28 @@ def remove_proxy(proxy: str) -> None:
     updated = [p for p in proxies if p != proxy.strip()]
     if len(updated) < len(proxies):
         set_proxies(updated)
+# ─── القائمة البيضاء ──────────────────────────────────────────────────────────
+def get_whitelisted(user_id: int) -> dict | None:
+    doc = _col_whitelist().document(str(user_id)).get()
+    return doc.to_dict() if doc.exists else None
+
+
+def add_to_whitelist(user_id: int, custom_reply: str = "") -> None:
+    _col_whitelist().document(str(user_id)).set({
+        "user_id":      user_id,
+        "custom_reply": custom_reply,
+        "added_at":     datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+
+
+def remove_from_whitelist(user_id: int) -> None:
+    _col_whitelist().document(str(user_id)).delete()
+
+
+def is_whitelisted(user_id: int) -> bool:
+    return _col_whitelist().document(str(user_id)).get().exists
+
+
+def get_all_whitelist() -> list[dict]:
+    docs = _col_whitelist().stream()
+    return [d.to_dict() for d in docs]
