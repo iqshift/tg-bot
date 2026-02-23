@@ -165,23 +165,45 @@ def get_user(user_id: int) -> dict | None:
 
 
 def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "") -> None:
-    now     = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_dt = datetime.datetime.now()
+    now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
     doc_ref = _col_users().document(str(user_id))
-    doc     = doc_ref.get()
+    doc = doc_ref.get()
+    
     if doc.exists:
-        doc_ref.update({
-            "username":    username,
-            "first_name":  first_name,
-            "last_active": now,
-            "photo_url":   photo_url,
-        })
+        data = doc.to_dict()
+        last_active_str = data.get("last_active", "")
+        needs_update = False
+        
+        # تحديث فقط إذا كان هناك تغيير في الاسم أو الصورة
+        if data.get("username") != username or data.get("first_name") != first_name or data.get("photo_url") != photo_url:
+            needs_update = True
+            
+        # أو إذا مر أكثر من 12 ساعة على آخر ظهور (لتقليل الكتابة)
+        if last_active_str:
+            try:
+                last_dt = datetime.datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")
+                if (now_dt - last_dt).total_seconds() > 43200: # 12 hours
+                    needs_update = True
+            except:
+                needs_update = True
+        else:
+            needs_update = True
+
+        if needs_update:
+            doc_ref.update({
+                "username":    username,
+                "first_name":  first_name,
+                "last_active": now_str,
+                "photo_url":   photo_url,
+            })
     else:
         doc_ref.set({
             "user_id":     user_id,
             "username":    username,
             "first_name":  first_name,
-            "joined_date": now,
-            "last_active": now,
+            "joined_date": now_str,
+            "last_active": now_str,
             "is_banned":   False,
             "photo_url":   photo_url,
         })
@@ -242,23 +264,52 @@ def set_setting(key: str, value: str) -> None:
 
 
 # ─── الإحصائيات ──────────────────────────────────────────────────────────────
+# ─── تخزين مؤقت للإحصائيات (Stats Caching) ──────────────────────────────────
+_stats_cache: dict | None = None
+_stats_last_fetch: datetime.datetime | None = None
+
 def get_stats() -> dict:
-    users   = [d.to_dict() for d in _col_users().stream()]
-    total   = len(users)
-    banned  = sum(1 for u in users if u.get("is_banned", False))
-    threshold = (
-        datetime.datetime.now() - datetime.timedelta(hours=24)
-    ).strftime("%Y-%m-%d %H:%M:%S")
-    active_24h   = sum(1 for u in users if u.get("last_active", "") >= threshold)
-    total_errors    = sum(1 for _ in _col_errors().limit(9999).stream())
-    whitelist_count = sum(1 for _ in _col_whitelist().limit(9999).stream())
-    return {
-        "total_users":     total,
-        "banned_users":    banned,
-        "active_24h":      active_24h,
-        "total_errors":    total_errors,
-        "whitelist_count": whitelist_count,
-    }
+    """إرجاع الإحصائيات مع استخدام ذاكرة مؤقتة لتقليل تكاليف القراءة."""
+    global _stats_cache, _stats_last_fetch
+    
+    now = datetime.datetime.now()
+    # استخدام الكاش إذا كان عمره أقل من 30 دقيقة
+    if _stats_cache and _stats_last_fetch:
+        if (now - _stats_last_fetch).total_seconds() < 1800:
+            return _stats_cache
+
+    try:
+        users_stream = _col_users().stream()
+        users_list = [d.to_dict() for d in users_stream]
+        
+        total   = len(users_list)
+        banned  = sum(1 for u in users_list if u.get("is_banned", False))
+        
+        threshold = (now - datetime.timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+        active_24h = sum(1 for u in users_list if u.get("last_active", "") >= threshold)
+        
+        # ملاحظة: Firestore لا يدعم count() بشكل مباشر في كل المكتبات القديمة
+        # استخدام stream().limit(1) فقط للتأكد من الوجود إذا أردنا توفير أكثر
+        total_errors    = sum(1 for _ in _col_errors().limit(1000).stream())
+        whitelist_count = sum(1 for _ in _col_whitelist().limit(1000).stream())
+        
+        _stats_cache = {
+            "total_users":     total,
+            "banned_users":    banned,
+            "active_24h":      active_24h,
+            "total_errors":    total_errors,
+            "whitelist_count": whitelist_count,
+            "cached_at":       now.strftime("%H:%M:%S")
+        }
+        _stats_last_fetch = now
+        return _stats_cache
+        
+    except Exception as e:
+        logger.error(f"Error fetching stats: {e}")
+        return _stats_cache or {
+            "total_users": 0, "banned_users": 0, "active_24h": 0, 
+            "total_errors": 0, "whitelist_count": 0
+        }
 
 
 # ─── سجل الأخطاء ─────────────────────────────────────────────────────────────
