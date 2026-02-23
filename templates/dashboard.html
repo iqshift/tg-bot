@@ -812,6 +812,10 @@
                     <i class="fa-solid fa-star"></i>
                     <span>القائمة البيضاء</span>
                 </button>
+                <button class="menu-item" onclick="showSection('server-specs-section', this)">
+                    <i class="fa-solid fa-server"></i>
+                    <span>مواصفات الخادم</span>
+                </button>
             </nav>
 
             <div class="sidebar-footer">
@@ -1229,6 +1233,79 @@
                     </div>
                 </div>
 
+                <!-- Server Specs Section -->
+                <div id="server-specs-section" class="section">
+                    <div class="card glass">
+                        <div class="card-header">
+                            <h3 class="card-title"><i class="fa-solid fa-microchip"
+                                    style="margin-left: 8px;"></i>مواصفات الخادم والبيانات التقنية</h3>
+                            <button class="btn btn-outline" onclick="fetchServerSpecs()">
+                                <i class="fa-solid fa-sync-alt"></i> تحديث الإحصائيات
+                            </button>
+                        </div>
+
+                        <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+                            <!-- RAM Card -->
+                            <div class="stat-card glass" style="background: rgba(30, 41, 59, 0.3);">
+                                <div class="stat-icon"
+                                    style="background: rgba(59, 130, 246, 0.1); color: var(--primary);">
+                                    <i class="fa-solid fa-memory"></i>
+                                </div>
+                                <span class="stat-value" id="spec-ram">...</span>
+                                <span class="stat-label">ذاكرة الوصول العشوائي (RAM)</span>
+                            </div>
+
+                            <!-- Storage Card -->
+                            <div class="stat-card glass" style="background: rgba(30, 41, 59, 0.3);">
+                                <div class="stat-icon"
+                                    style="background: rgba(16, 185, 129, 0.1); color: var(--success);">
+                                    <i class="fa-solid fa-hard-drive"></i>
+                                </div>
+                                <span class="stat-value" id="spec-storage">...</span>
+                                <span class="stat-label">مساحة التخزين المستهلكة (Disk)</span>
+                            </div>
+                        </div>
+
+                        <!-- Internet Speed Section -->
+                        <div class="card glass" style="margin-top: 24px; background: rgba(15, 23, 42, 0.2);">
+                            <div class="card-header">
+                                <h4 class="card-title"><i class="fa-solid fa-gauge-high"
+                                        style="margin-left: 8px;"></i>اختبار سرعة الإنترنت (Speed Test)</h4>
+                                <button class="btn btn-primary" id="btn-speedtest" onclick="runSpeedTest()">
+                                    <i class="fa-solid fa-play"></i> بدء الاختبار الآني
+                                </button>
+                            </div>
+
+                            <div id="speedtest-results"
+                                style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; display: none;">
+                                <div class="stat-card glass" style="border: 1px solid rgba(59, 130, 246, 0.2);">
+                                    <div class="stat-icon"
+                                        style="background: rgba(59, 130, 246, 0.1); color: var(--primary);">
+                                        <i class="fa-solid fa-download"></i>
+                                    </div>
+                                    <span class="stat-value" id="speed-download">0 Mbps</span>
+                                    <span class="stat-label">سرعة التحميل (Download)</span>
+                                </div>
+                                <div class="stat-card glass" style="border: 1px solid rgba(14, 165, 233, 0.2);">
+                                    <div class="stat-icon"
+                                        style="background: rgba(14, 165, 233, 0.1); color: var(--secondary);">
+                                        <i class="fa-solid fa-upload"></i>
+                                    </div>
+                                    <span class="stat-value" id="speed-upload">0 Mbps</span>
+                                    <span class="stat-label">سرعة الرفع (Upload)</span>
+                                </div>
+                            </div>
+
+                            <div id="speedtest-loading" style="display: none; padding: 40px; text-align: center;">
+                                <i class="fa-solid fa-spinner fa-spin"
+                                    style="font-size: 40px; color: var(--primary); margin-bottom: 20px;"></i>
+                                <p style="color: var(--text-muted); font-weight: 600;">جاري اختبار السرعة... قد يستغرق
+                                    الأمر 30-40 ثانية.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </main>
     </div>
@@ -1250,7 +1327,8 @@
                 'channels': 'الاشتراك الإجباري',
                 'errors-section': 'سجل الأخطاء التقنية',
                 'proxies-section': 'إدارة البروكسيات',
-                'whitelist-section': 'القائمة البيضاء (المميزين)'
+                'whitelist-section': 'القائمة البيضاء (المميزين)',
+                'server-specs-section': 'مواصفات الخادم'
             };
             document.getElementById('pageTitleDisplay').innerText = titles[id] || 'لوحة التحكم';
 
@@ -1384,9 +1462,48 @@
             </div>`;
         }
 
+        async function fetchServerSpecs() {
+            try {
+                const r = await fetch('/api/server_specs');
+                const d = await r.json();
+                document.getElementById('spec-ram').innerText = d.ram;
+                document.getElementById('spec-storage').innerText = d.storage;
+            } catch (e) {
+                console.error("Error fetching specs:", e);
+            }
+        }
+
+        async function runSpeedTest() {
+            const btn = document.getElementById('btn-speedtest');
+            const resultsBox = document.getElementById('speedtest-results');
+            const loadingBox = document.getElementById('speedtest-loading');
+
+            btn.disabled = true;
+            resultsBox.style.display = 'none';
+            loadingBox.style.display = 'block';
+
+            try {
+                const r = await fetch('/api/speed_test', { method: 'POST' });
+                const d = await r.json();
+
+                document.getElementById('speed-download').innerText = d.download;
+                document.getElementById('speed-upload').innerText = d.upload;
+
+                loadingBox.style.display = 'none';
+                resultsBox.style.display = 'grid';
+            } catch (e) {
+                console.error("Error running speed test:", e);
+                alert("فشل اختبار السرعة. يرجى المحاولة لاحقاً.");
+                loadingBox.style.display = 'none';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         // جلب البيانات عند التحميل
         window.addEventListener('load', () => {
             fetchProxies();
+            fetchServerSpecs();
         });
     </script>
 </body>

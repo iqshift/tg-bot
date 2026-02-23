@@ -13,6 +13,7 @@ from telegram import Update
 
 import config
 from data import database
+from utils import server_utils
 
 logger = logging.getLogger(__name__)
 
@@ -335,10 +336,13 @@ def add_to_whitelist():
     return redirect(url_for("dashboard") + "#whitelist-section")
 
 
-@app.route("/whitelist/delete", methods=["POST"])
-def delete_from_whitelist():
-    user_id = request.form.get("user_id", "").strip()
-    if user_id:
-        database.remove_from_whitelist(int(user_id))
-        flash(f"تم إزالة {user_id} من القائمة البيضاء", "success")
-    return redirect(url_for("dashboard") + "#whitelist-section")
+@app.route("/api/server_specs")
+def api_server_specs():
+    """إرجاع مواصفات الخادم (رام وتخزين)."""
+    return jsonify(server_utils.get_server_specs())
+
+
+@app.route("/api/speed_test", methods=["POST"])
+def api_speed_test():
+    """تشغيل اختبار سرعة الإنترنت وإرجاع النتائج."""
+    return jsonify(server_utils.get_internet_speed())
