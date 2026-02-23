@@ -8,25 +8,24 @@ logger = logging.getLogger(__name__)
 def get_server_specs():
     """Returns a dictionary containing server RAM, Storage, and Internet Speed."""
     specs = {
-        "ram": "Unknown",
-        "storage": "Unknown",
-        "internet_speed": "Unknown"
+        "ram": "N/A",
+        "storage": "N/A",
     }
 
     try:
         # RAM Stats
         ram = psutil.virtual_memory()
         specs["ram"] = f"{ram.used / (1024**3):.1f}GB / {ram.total / (1024**3):.1f}GB ({ram.percent}%)"
-        
+    except Exception as e:
+        logger.warning(f"Could not get RAM specs: {e}")
+
+    try:
         # Storage Stats (Root partition or current partition)
-        # Usage of the partition where the script is located
+        # Note: disk_usage('/') can fail in some sandboxed environments like Cloud Run
         usage = psutil.disk_usage('/')
         specs["storage"] = f"{usage.used / (1024**3):.1f}GB / {usage.total / (1024**3):.1f}GB ({usage.percent}%)"
-
-        # Note: Internet speed test is slow. We might want to call it asynchronously or cache it.
-        # For now, let's provide a function that can be called to get it.
     except Exception as e:
-        logger.error(f"Error getting server specs: {e}")
+        logger.warning(f"Could not get Storage specs: {e}")
 
     return specs
 

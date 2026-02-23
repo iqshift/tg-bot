@@ -13,7 +13,12 @@ from telegram import Update
 
 import config
 from data import database
-from utils import server_utils
+
+try:
+    from utils import server_utils
+except ImportError as e:
+    logger.error(f"❌ Failed to import server_utils: {e}")
+    server_utils = None
 
 logger = logging.getLogger(__name__)
 
@@ -339,10 +344,14 @@ def add_to_whitelist():
 @app.route("/api/server_specs")
 def api_server_specs():
     """إرجاع مواصفات الخادم (رام وتخزين)."""
+    if not server_utils:
+        return jsonify({"ram": "N/A", "storage": "N/A"})
     return jsonify(server_utils.get_server_specs())
 
 
 @app.route("/api/speed_test", methods=["POST"])
 def api_speed_test():
     """تشغيل اختبار سرعة الإنترنت وإرجاع النتائج."""
+    if not server_utils:
+        return jsonify({"download": "N/A", "upload": "N/A"})
     return jsonify(server_utils.get_internet_speed())
