@@ -39,7 +39,7 @@ class BaseDownloader:
         self.download_path = download_path or config.DOWNLOADS_DIR
         os.makedirs(self.download_path, exist_ok=True)
 
-    def _download(self, url: str, extra_opts: dict = None) -> str:
+    def _download(self, url: str, extra_opts: dict = None) -> dict:
         filename = str(uuid.uuid4())
         opts = {
             **_BASE_OPTS,
@@ -51,12 +51,18 @@ class BaseDownloader:
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-                return ydl.prepare_filename(info)
+                file_path = ydl.prepare_filename(info)
+                # استخراج الوصف أو العنوان
+                description = info.get("description") or info.get("title") or ""
+                return {
+                    "results": file_path,
+                    "description": description
+                }
         except Exception as exc:
             logger.error("خطأ في التحميل: %s", exc)
             raise
 
-    def download_video(self, url: str) -> str:
+    def download_video(self, url: str) -> dict:
         return self._download(url)
 
     def cleanup(self, file_path: str) -> None:

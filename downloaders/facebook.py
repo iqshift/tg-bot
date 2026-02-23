@@ -18,6 +18,6 @@ _USER_AGENT = (
 class FacebookDownloader(BaseDownloader):
     """وحدة تحميل مقاطع Facebook."""
 
-    def download_video(self, url: str) -> str:
+    def download_video(self, url: str) -> dict:
         opts = {"user_agent": _USER_AGENT}
         return self._download(url, extra_opts=opts)

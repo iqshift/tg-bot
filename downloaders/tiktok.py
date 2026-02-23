@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class TikTokDownloader(BaseDownloader):
     """وحدة تحميل مقاطع TikTok."""
 
-    def download_video(self, url: str) -> str:
+    def download_video(self, url: str) -> dict:
         opts = {}
 
         if os.path.exists(config.TIKTOK_COOKIES):

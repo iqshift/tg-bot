@@ -44,7 +44,7 @@ class InstagramDownloader(BaseDownloader):
             filename_pattern="{shortcode}"
         )
 
-    def download_video(self, url: str) -> str | list[str]:
+    def download_video(self, url: str) -> dict:
         """تحميل منشور (فيديو، صورة، أو ألبوم)."""
         shortcode = self._get_shortcode(url)
         if not shortcode:
@@ -58,15 +58,14 @@ class InstagramDownloader(BaseDownloader):
         try:
             logger.info("📥 [Instaloader] Fetching post: %s", shortcode)
             post = instaloader.Post.from_shortcode(self.L.context, shortcode)
+            description = post.caption or ""
             
             # التحميل الفعلي
             logger.info("📥 [Instaloader] Downloading to folder: %s", target_name)
             self.L.download_post(post, target=target_name)
 
-            # التحقق من وجود المجلد (قد يحتاج لثانية للتزامن في بعض الأنظمة)
+            # التحقق من وجود المجلد
             if not os.path.exists(target_dir):
-                logger.warning("⚠️ Target directory not found at %s. Searching in CWD...", target_dir)
-                # إذا لم يجده في المسار المحدد، يبحث عنه في المسار الحالي (كـ fallback)
                 if os.path.exists(target_name):
                     target_dir = os.path.abspath(target_name)
 
@@ -78,7 +77,6 @@ class InstagramDownloader(BaseDownloader):
                         media_files.append(os.path.join(target_dir, f))
 
             if not media_files:
-                logger.error("❌ No media files found in %s. Files present: %s", target_dir, os.listdir(target_dir) if os.path.exists(target_dir) else "DIR NOT FOUND")
                 raise ValueError("فشل التحميل: لم يتم العثور على ملفات وسائط")
 
             media_files.sort()
@@ -88,11 +86,11 @@ class InstagramDownloader(BaseDownloader):
                 final_path = os.path.join(self.abs_download_path, f"insta_{shortcode}_{int(time.time())}{os.path.splitext(media_files[0])[1]}")
                 shutil.copy2(media_files[0], final_path)
                 shutil.rmtree(target_dir, ignore_errors=True)
-                return final_path
+                return {"results": final_path, "description": description}
             
             # ألبوم
             logger.info("✅ [Instaloader] Success: %d items", len(media_files))
-            return media_files
+            return {"results": media_files, "description": description}
 
         except Exception as e:
             logger.error("❌ [Instaloader] Error: %s", e)
@@ -102,9 +100,9 @@ class InstagramDownloader(BaseDownloader):
             # Fallback
             logger.info("🔄 Falling back to yt-dlp...")
             try:
-                path = super().download_video(url)
-                if os.path.exists(path) and not path.lower().endswith(".na"):
-                    return path
+                res = super().download_video(url)
+                if os.path.exists(res["file_path"]) and not res["file_path"].lower().endswith(".na"):
+                    return {"results": res["file_path"], "description": res["description"]}
             except: pass
             
             raise ValueError(f"⚠️ خطأ في تحميل المنشور: {str(e)}")

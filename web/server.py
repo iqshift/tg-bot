@@ -56,7 +56,7 @@ def dashboard():
     settings_keys = [
         "welcome_msg", "help_msg", "msg_analyzing", "msg_routing",
         "msg_complete", "msg_error", "msg_banned", "msg_caption",
-        "required_channels", "msg_force_sub",
+        "required_channels", "msg_force_sub", "share_msg", "share_btn_text",
     ]
     settings      = {k: database.get_setting(k) for k in settings_keys}
     channels_list = [c.strip() for c in (settings["required_channels"] or "").split(",") if c.strip()]
@@ -230,14 +230,14 @@ def send_private():
 
 @app.route("/ban_user/<int:user_id>", methods=["POST"])
 def ban_user(user_id: int):
-    database.set_ban_status(user_id, True)
+    database.ban_user(user_id, True)
     flash(f"تم حظر المستخدم {user_id}", "error")
     return redirect(url_for("dashboard"))
 
 
 @app.route("/unban_user/<int:user_id>", methods=["POST"])
 def unban_user(user_id: int):
-    database.set_ban_status(user_id, False)
+    database.ban_user(user_id, False)
     flash(f"تم رفع الحظر عن {user_id}", "success")
     return redirect(url_for("dashboard"))
 
@@ -247,7 +247,7 @@ def update_settings():
     for key in [
         "welcome_msg", "help_msg", "msg_analyzing", "msg_routing",
         "msg_complete", "msg_error", "msg_banned", "msg_caption",
-        "required_channels", "msg_force_sub",
+        "required_channels", "msg_force_sub", "share_msg", "share_btn_text",
     ]:
         value = request.form.get(key)
         if value is not None:

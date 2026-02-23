@@ -70,7 +70,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     msg = database.get_setting("welcome_msg", "أهلاً! أرسل رابط الفيديو.")
-    await update.message.reply_text(msg)
+    
+    # جلب إعدادات المشاركة
+    share_msg  = database.get_setting("share_msg", "هذا هو البوت الاحترافي للتحميل! @ir4qibot")
+    share_btn  = database.get_setting("share_btn_text", "مشاركة مع الأصدقاء 🔗")
+    
+    # تجهيز رابط المشاركة
+    import urllib.parse
+    bot_username = context.bot.username
+    encoded_share = urllib.parse.quote_plus(share_msg)
+    share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}&text={encoded_share}"
+    
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(text=share_btn, url=share_url)]
+    ])
+
+    await update.message.reply_text(msg, reply_markup=keyboard)
     database.log_message(user.id, "bot", msg)
 
 
@@ -112,6 +128,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not await _check_subscriptions(update, context, user.id, chat_id):
             return
 
+    # التحقق من أن النص هو رابط فعلي قبل البدء
+    if not url.startswith(("http://", "https://")):
+        msg = "⚠️ يرجى إرسال رابط فيديو صحيح من Instagram أو Facebook أو TikTok.\nمثال: https://instagram.com/p/..."
+        await update.message.reply_text(msg)
+        return
+
     # ----- التحميل -----
     downloader, platform = _get_downloader(url)
 
@@ -132,16 +154,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with _download_semaphore:   # حد للتحميلات المتزامنة
         try:
             loop      = asyncio.get_running_loop()
-            results = await loop.run_in_executor(
+            stats_dict = await loop.run_in_executor(
                 EXECUTOR, downloader.download_video, url
             )
+            
+            # استخراج النتائج والوصف
+            results     = stats_dict.get("results")
+            description = stats_dict.get("description", "")
 
             await context.bot.edit_message_text(
                 chat_id=chat_id, message_id=status_msg.message_id, text=msg_complete
             )
 
-            # تحويل النتيجة إلى قائمة إذا كانت ملفاً واحداً لتوحيد المعالجة (اختياري)
-            # لكننا سنبقيها منفصلة للتحكم الأدق
+            # دمج الوصف المستخرج مع الكابشن الافتراضي
+            # سنقوم بوضع الوصف في البداية ثم المصدر
+            final_caption = f"{description}\n\n{msg_caption}" if description else msg_caption
+            # تليجرام لديه حد أقصى للحروف في الكابشن (1024)
+            if len(final_caption) > 1024:
+                final_caption = final_caption[:1020] + "..."
+
             if isinstance(results, list):
                 # إرسال ألبوم (Media Group) - تليجرام يسمح بـ 10 عناصر بحد أقصى لكل مجموعة
                 from telegram import InputMediaPhoto, InputMediaVideo
@@ -154,7 +185,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     for i, path in enumerate(chunk):
                         ext = os.path.splitext(path)[1].lower()
                         # الكابشن يظهر في أول عنصر من أول مجموعة فقط
-                        caption = msg_caption if (chunk_idx == 0 and i == 0) else None
+                        caption = final_caption if (chunk_idx == 0 and i == 0) else None
                         
                         file_handle = open(path, "rb")
                         if ext in (".jpg", ".jpeg", ".png", ".webp"):
@@ -171,21 +202,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 for path in results:
                     downloader.cleanup(path)
             else:
-                # إرسال ملف واحد (الحال القديمة)
+                # إرسال ملف واحد
                 file_path = results
                 ext = os.path.splitext(file_path)[1].lower()
                 with open(file_path, "rb") as media_file:
                     if ext in (".jpg", ".jpeg", ".png", ".webp"):
                         await context.bot.send_photo(
-                            chat_id=chat_id, photo=media_file, caption=msg_caption
+                            chat_id=chat_id, photo=media_file, caption=final_caption
                         )
                     elif ext == ".gif":
                         await context.bot.send_animation(
-                            chat_id=chat_id, animation=media_file, caption=msg_caption
+                            chat_id=chat_id, animation=media_file, caption=final_caption
                         )
                     else:
                         await context.bot.send_video(
-                            chat_id=chat_id, video=media_file, caption=msg_caption
+                            chat_id=chat_id, video=media_file, caption=final_caption
                         )
                 
                 downloader.cleanup(file_path)
