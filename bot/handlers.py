@@ -152,7 +152,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 for chunk_idx, chunk in enumerate(chunks):
                     media_group = []
                     for i, path in enumerate(chunk):
-                        ext = os.path.splitext(path).lower()
+                        ext = os.path.splitext(path)[1].lower()
                         # الكابشن يظهر في أول عنصر من أول مجموعة فقط
                         caption = msg_caption if (chunk_idx == 0 and i == 0) else None
                         
