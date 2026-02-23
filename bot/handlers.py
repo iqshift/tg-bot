@@ -132,7 +132,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with _download_semaphore:   # حد للتحميلات المتزامنة
         try:
             loop      = asyncio.get_running_loop()
-            file_path = await loop.run_in_executor(
+            results = await loop.run_in_executor(
                 EXECUTOR, downloader.download_video, url
             )
 
@@ -140,24 +140,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 chat_id=chat_id, message_id=status_msg.message_id, text=msg_complete
             )
 
-            # اكتشاف نوع الملف وإرساله بالطريقة المناسبة
-            ext = os.path.splitext(file_path)[1].lower()
-            with open(file_path, "rb") as media_file:
-                if ext in (".jpg", ".jpeg", ".png", ".webp"):
-                    await context.bot.send_photo(
-                        chat_id=chat_id, photo=media_file, caption=msg_caption
-                    )
-                elif ext == ".gif":
-                    await context.bot.send_animation(
-                        chat_id=chat_id, animation=media_file, caption=msg_caption
-                    )
-                else:
-                    await context.bot.send_video(
-                        chat_id=chat_id, video=media_file, caption=msg_caption
-                    )
+            # تحويل النتيجة إلى قائمة إذا كانت ملفاً واحداً لتوحيد المعالجة (اختياري)
+            # لكننا سنبقيها منفصلة للتحكم الأدق
+            if isinstance(results, list):
+                # إرسال ألبوم (Media Group) - تليجرام يسمح بـ 10 عناصر بحد أقصى لكل مجموعة
+                from telegram import InputMediaPhoto, InputMediaVideo
+                
+                # تقسيم القائمة إلى مجموعات (Chunks) كل منها 10 عناصر
+                chunks = [results[i:i + 10] for i in range(0, len(results), 10)]
+                
+                for chunk_idx, chunk in enumerate(chunks):
+                    media_group = []
+                    for i, path in enumerate(chunk):
+                        ext = os.path.splitext(path).lower()
+                        # الكابشن يظهر في أول عنصر من أول مجموعة فقط
+                        caption = msg_caption if (chunk_idx == 0 and i == 0) else None
+                        
+                        file_handle = open(path, "rb")
+                        if ext in (".jpg", ".jpeg", ".png", ".webp"):
+                            media_group.append(InputMediaPhoto(media=file_handle, caption=caption))
+                        else:
+                            media_group.append(InputMediaVideo(media=file_handle, caption=caption))
+                    
+                    try:
+                        await context.bot.send_media_group(chat_id=chat_id, media=media_group)
+                    except Exception as e:
+                        logger.error("❌ فشل إرسال Media Group (chunk %d): %s", chunk_idx, e)
+                
+                # تنظيف القائمة بعد الإرسال
+                for path in results:
+                    downloader.cleanup(path)
+            else:
+                # إرسال ملف واحد (الحال القديمة)
+                file_path = results
+                ext = os.path.splitext(file_path)[1].lower()
+                with open(file_path, "rb") as media_file:
+                    if ext in (".jpg", ".jpeg", ".png", ".webp"):
+                        await context.bot.send_photo(
+                            chat_id=chat_id, photo=media_file, caption=msg_caption
+                        )
+                    elif ext == ".gif":
+                        await context.bot.send_animation(
+                            chat_id=chat_id, animation=media_file, caption=msg_caption
+                        )
+                    else:
+                        await context.bot.send_video(
+                            chat_id=chat_id, video=media_file, caption=msg_caption
+                        )
+                
+                downloader.cleanup(file_path)
 
-            # حذف فوري لتوفير مساحة القرص
-            downloader.cleanup(file_path)
             await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
 
         except Exception as exc:

@@ -1,14 +1,12 @@
 """
-downloaders/instagram.py - وحدة تحميل Instagram
-يدعم: فيديوهات + صور + Carousel
-الميزات:
-  - كوكيز للمصادقة
-  - Proxy Rotation تلقائي عند rate-limit
-  - استبعاد تلقائي للبروكسي الميت من قاعدة البيانات
+downloaders/instagram.py - وحدة تحميل Instagram المطورة
+تستخدم Instaloader لدعم الألبومات (Carousel) بدقة عالية.
 """
 import os
-import random
+import time
 import logging
+import shutil
+import instaloader
 import requests as _requests
 
 import config
@@ -23,126 +21,111 @@ _USER_AGENT = (
     "Chrome/120.0.0.0 Safari/537.36"
 )
 
-# كلمات مفتاحية تشير لحظر Instagram
-_RATE_LIMIT_KEYWORDS = (
-    "rate-limit",
-    "rate limit",
-    "login required",
-    "Requested content is not available",
-    "Please wait a few minutes",
-)
-
-
-def _is_rate_limited(error_msg: str) -> bool:
-    """هل الخطأ بسبب rate-limit أو حظر Instagram؟"""
-    msg = error_msg.lower()
-    return any(kw.lower() in msg for kw in _RATE_LIMIT_KEYWORDS)
-
-
 class InstagramDownloader(BaseDownloader):
-    """وحدة تحميل مقاطع وصور Instagram مع Proxy Rotation."""
+    """وحدة تحميل Instagram باستخدام Instaloader."""
 
-    def download_video(self, url: str) -> str:
-        opts = {"user_agent": _USER_AGENT}
+    def __init__(self, download_path: str = None):
+        super().__init__(download_path)
+        # التأكد من أن المسار مطلق لـ Instaloader
+        self.abs_download_path = os.path.abspath(self.download_path)
+        os.makedirs(self.abs_download_path, exist_ok=True)
+        
+        self.L = instaloader.Instaloader(
+            download_pictures=True,
+            download_videos=True,
+            download_video_thumbnails=False,
+            download_geotags=False,
+            download_comments=False,
+            save_metadata=False,
+            compress_json=False,
+            user_agent=_USER_AGENT,
+            # سيتم وضع المجلدات داخل المجلد الرئيسي مباشرة
+            dirname_pattern=os.path.join(self.abs_download_path, "{target}"),
+            filename_pattern="{shortcode}"
+        )
 
-        if os.path.exists(config.INSTAGRAM_COOKIES):
-            logger.info("✅ كوكيز Instagram موجودة")
-            opts["cookiefile"] = config.INSTAGRAM_COOKIES
-        else:
-            logger.warning("⚠️ كوكيز Instagram غير موجودة: %s", config.INSTAGRAM_COOKIES)
+    def download_video(self, url: str) -> str | list[str]:
+        """تحميل منشور (فيديو، صورة، أو ألبوم)."""
+        shortcode = self._get_shortcode(url)
+        if not shortcode:
+            raise ValueError("رابط Instagram غير صالح أو غير مدعوم")
 
-        # ─── محاولة 1: بدون بروكسي ────────────────────────────────────────────
+        # اسم المجلد النسبي
+        target_name = f"temp_{shortcode}_{int(time.time())}"
+        # المسار الفعلي المتوقع
+        target_dir = os.path.join(self.abs_download_path, target_name)
+
         try:
-            return self._try_download(url, opts)
-        except Exception as exc:
-            err = str(exc)
+            logger.info("📥 [Instaloader] Fetching post: %s", shortcode)
+            post = instaloader.Post.from_shortcode(self.L.context, shortcode)
+            
+            # التحميل الفعلي
+            logger.info("📥 [Instaloader] Downloading to folder: %s", target_name)
+            self.L.download_post(post, target=target_name)
 
-            # إذا كانت صورة → حمّلها مباشرة (بدون بروكسي)
-            if "No video formats found" in err:
-                logger.info("📷 منشور صورة - جاري التحميل المباشر...")
-                return self._download_image(url, opts)
+            # التحقق من وجود المجلد (قد يحتاج لثانية للتزامن في بعض الأنظمة)
+            if not os.path.exists(target_dir):
+                logger.warning("⚠️ Target directory not found at %s. Searching in CWD...", target_dir)
+                # إذا لم يجده في المسار المحدد، يبحث عنه في المسار الحالي (كـ fallback)
+                if os.path.exists(target_name):
+                    target_dir = os.path.abspath(target_name)
 
-            # إذا كان rate-limit → جرّب البروكسيات
-            if _is_rate_limited(err):
-                logger.warning("🚫 Instagram rate-limit! جاري تجربة البروكسيات...")
-                return self._download_with_proxy_rotation(url, opts)
+            # جمع الملفات
+            media_files = []
+            if os.path.exists(target_dir):
+                for f in os.listdir(target_dir):
+                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.mp4')):
+                        media_files.append(os.path.join(target_dir, f))
 
-            raise
+            if not media_files:
+                logger.error("❌ No media files found in %s. Files present: %s", target_dir, os.listdir(target_dir) if os.path.exists(target_dir) else "DIR NOT FOUND")
+                raise ValueError("فشل التحميل: لم يتم العثور على ملفات وسائط")
 
-    def _try_download(self, url: str, opts: dict) -> str:
-        """محاولة تحميل بالخيارات المعطاة."""
-        return self._download(url, extra_opts=opts)
+            media_files.sort()
 
-    def _download_with_proxy_rotation(self, url: str, opts: dict) -> str:
-        """تدوير البروكسيات حتى ينجح التحميل."""
-        proxies = database.get_proxies()
-        if not proxies:
-            raise ValueError(
-                "🚫 Instagram محجوب مؤقتاً ولا توجد بروكسيات - "
-                "أضف بروكسيات من لوحة التحكم > قسم البروكسيات"
-            )
+            # إذا كان ملفاً واحداً
+            if len(media_files) == 1:
+                final_path = os.path.join(self.abs_download_path, f"insta_{shortcode}_{int(time.time())}{os.path.splitext(media_files[0])[1]}")
+                shutil.copy2(media_files[0], final_path)
+                shutil.rmtree(target_dir, ignore_errors=True)
+                return final_path
+            
+            # ألبوم
+            logger.info("✅ [Instaloader] Success: %d items", len(media_files))
+            return media_files
 
-        # خلط العشوائي لتوزيع الحِمل
-        random.shuffle(proxies)
-
-        last_error = None
-        for i, proxy in enumerate(proxies, 1):
-            proxy_opts = {**opts, "proxy": proxy}
-            logger.info("🔄 [%d/%d] تجربة: %s", i, len(proxies), proxy)
+        except Exception as e:
+            logger.error("❌ [Instaloader] Error: %s", e)
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir, ignore_errors=True)
+            
+            # Fallback
+            logger.info("🔄 Falling back to yt-dlp...")
             try:
-                result = self._try_download(url, proxy_opts)
-                logger.info("✅ نجح مع البروكسي: %s", proxy)
-                return result
-            except Exception as exc:
-                err = str(exc)
-                # إذا كانت صورة عبر البروكسي → لا تستبعد البروكسي
-                if "No video formats found" in err:
-                    return self._download_image(url, proxy_opts)
-                last_error = exc
-                logger.debug("❌ فشل البروكسي %s: %s", proxy, exc)
-                # ✅ استبعاد البروكسي الميت تلقائياً من قاعدة البيانات
-                database.remove_proxy(proxy)
-                continue
+                path = super().download_video(url)
+                if os.path.exists(path) and not path.lower().endswith(".na"):
+                    return path
+            except: pass
+            
+            raise ValueError(f"⚠️ خطأ في تحميل المنشور: {str(e)}")
 
-        raise ValueError(
-            f"🚫 فشل جميع البروكسيات ({len(proxies)}) - "
-            f"قد تكون القائمة قديمة، أضف قائمة جديدة من لوحة التحكم.\n"
-            f"آخر خطأ: {last_error}"
-        )
+    def _get_shortcode(self, url: str) -> str:
+        parts = [p for p in url.split("/") if p]
+        for i, p in enumerate(parts):
+            if p in ("p", "reels", "reel") and i + 1 < len(parts):
+                return parts[i+1].split("?")[0]
+        return None
 
-    def _download_image(self, url: str, opts: dict) -> str:
-        """تحميل صورة Instagram باستخدام yt-dlp لاستخراج الرابط."""
-        import yt_dlp
-
-        ydl_opts = {**opts, "quiet": True, "no_warnings": True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-        # أعلى جودة للصورة
-        image_url = None
-        thumbnails = sorted(
-            info.get("thumbnails") or [],
-            key=lambda x: x.get("width") or 0,
-            reverse=True,
-        )
-        if thumbnails:
-            image_url = thumbnails[0].get("url")
-        if not image_url:
-            image_url = info.get("thumbnail")
-        if not image_url:
-            raise ValueError("لم يتم العثور على محتوى قابل للتحميل")
-
-        os.makedirs(config.DOWNLOADS_DIR, exist_ok=True)
-        shortcode = url.rstrip("/").split("/")[-2] if "/" in url else "instagram"
-        file_path = os.path.join(config.DOWNLOADS_DIR, f"{shortcode}.jpg")
-
-        response = _requests.get(
-            image_url, headers={"User-Agent": _USER_AGENT}, timeout=30
-        )
-        response.raise_for_status()
-
-        with open(file_path, "wb") as f:
-            f.write(response.content)
-
-        logger.info("✅ تم تحميل الصورة: %s", file_path)
-        return file_path
+    def cleanup(self, path_or_list):
+        if not path_or_list: return
+        if isinstance(path_or_list, list):
+            for p in path_or_list:
+                if os.path.exists(p): os.remove(p)
+            if path_or_list:
+                parent = os.path.dirname(path_or_list[0])
+                if os.path.basename(parent).startswith("temp_") and os.path.exists(parent):
+                    shutil.rmtree(parent, ignore_errors=True)
+        else:
+            if os.path.exists(path_or_list):
+                try: os.remove(path_or_list)
+                except: pass
