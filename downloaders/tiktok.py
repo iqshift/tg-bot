@@ -50,29 +50,58 @@ class TikTokDownloader(BaseDownloader):
             response = requests.get(url, headers=headers, timeout=15)
             response.raise_for_status()
             
-            # البحث عن بيانات الصفحة
+            # البحث عن بيانات الصفحة (Rehydration Data هو الأساس)
+            payload = None
             match = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">(.*?)</script>', response.text)
-            if not match:
-                raise ValueError("لم يتم العثور على بيانات Rehydration في الصفحة.")
+            if match:
+                payload = json.loads(match.group(1))
+            else:
+                # محاولة البحث عن SIGI_STATE
+                match_sigi = re.search(r'<script id="SIGI_STATE" type="application/json">(.*?)</script>', response.text)
+                if match_sigi:
+                    payload = json.loads(match_sigi.group(1))
+                else:
+                    # محاولة البحث عن RENDER_DATA
+                    match_render = re.search(r'<script id="RENDER_DATA" type="application/json">(.*?)</script>', response.text)
+                    if match_render:
+                        from urllib.parse import unquote
+                        payload = json.loads(unquote(match_render.group(1)))
+
+            if not payload:
+                raise ValueError("لم يتم العثور على بيانات الميتا (JSON) في صفحة TikTok.")
             
-            data = json.loads(match.group(1))
+            data = payload
             
             # استخراج الـ imagePost
             image_post = self._find_key_recursive(data, "imagePost")
             if not image_post:
-                raise ValueError("هذا الرابط لا يحتوي على صور (Photo Post).")
+                # محاولة البحث عن كائنات الصور مباشرة في حال تغير المسار
+                images_list = self._find_key_recursive(data, "images")
+                if images_list and isinstance(images_list, list) and len(images_list) > 0:
+                     image_post = {"images": images_list}
+                else:
+                     raise ValueError("هذا الرابط لا يحتوي على صور (أو تعذر العثور على مصفوفة الصور).")
             
             images = image_post.get("images", [])
+            if not images and isinstance(image_post, list):
+                images = image_post
+                
             if not images:
-                raise ValueError("لا توجد صور في مصفوفة الصور.")
+                raise ValueError("لا توجد صور في مصفوفة الصور المستخرجة.")
                 
             logger.info("📸 تم العثور على %d صورة في Slideshow", len(images))
             
             file_paths = []
             for img in images:
-                # محاولة استخراج الرابط بالتفضيل: urlList (Signed) ثم displayLink
+                if not isinstance(img, dict): continue
+                
+                # محاولة استخراج الرابط بالتفضيل: urlList ثم displayLink ثم downloadAddr
+                img_url = None
                 url_list = img.get("imageURL", {}).get("urlList", [])
-                img_url = url_list[0] if url_list else img.get("displayLink")
+                if url_list:
+                    img_url = url_list[0]
+                else:
+                    img_url = img.get("displayLink") or img.get("downloadAddr")
                 
                 if img_url:
                     try:

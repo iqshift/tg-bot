@@ -226,35 +226,58 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                      return
 
                 if isinstance(results, list):
-                    # إرسال ألبوم (Media Group) - تليجرام يسمح بـ 10 عناصر بحد أقصى لكل مجموعة
+                    # إرسال ألبوم (Media Group)
                     from telegram import InputMediaPhoto, InputMediaVideo
                     media = []
-                    for item in results[:10]:
-                        if item.endswith((".jpg", ".jpeg", ".png", ".webp")):
-                            media.append(InputMediaPhoto(media=item, caption=final_caption if not media else ""))
-                        else:
-                            media.append(InputMediaVideo(media=item, caption=final_caption if not media else ""))
-                    
-                    if media:
-                        await context.bot.send_media_group(chat_id=chat_id, media=media, reply_to_message_id=update.message.message_id)
-                        await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                    # تليجرام يسمح بـ 10 عناصر بحد أقصى لكل مجموعة
+                    # نستخدم قائمة لفتح الملفات لضمان إغلاقها لاحقاً
+                    opened_files = []
+                    try:
+                        for item in results[:10]:
+                            f = open(item, 'rb')
+                            opened_files.append(f)
+                            if item.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                                media.append(InputMediaPhoto(media=f, caption=final_caption if not media else ""))
+                            else:
+                                media.append(InputMediaVideo(media=f, caption=final_caption if not media else ""))
+                        
+                        if media:
+                            await context.bot.send_media_group(chat_id=chat_id, media=media, reply_to_message_id=update.message.message_id)
+                            await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                    finally:
+                        for f in opened_files:
+                            f.close()
                 else:
-                    # إرسال فيديو واحد
-                    await context.bot.send_video(
-                        chat_id=chat_id,
-                        video=results,
-                        caption=final_caption,
-                        reply_to_message_id=update.message.message_id
-                    )
+                    # إرسال ملف واحد (فيديو أو صورة)
+                    if results.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                        with open(results, 'rb') as f:
+                            await context.bot.send_photo(
+                                chat_id=chat_id,
+                                photo=f,
+                                caption=final_caption,
+                                reply_to_message_id=update.message.message_id
+                            )
+                    else:
+                        with open(results, 'rb') as f:
+                            await context.bot.send_video(
+                                chat_id=chat_id,
+                                video=f,
+                                caption=final_caption,
+                                reply_to_message_id=update.message.message_id
+                            )
                     await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
 
             except Exception as e:
                 logger.error(f"Download Error: {e}", exc_info=True)
-                # تسجيل الخطأ في قاعدة البيانات ليظهر في لوحة التحكم
                 database.log_error(user_id=user_id, platform=platform, url=url, error_msg=str(e))
-                
                 final_error_msg = msg_error.replace("{error}", str(e))
                 await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_error_msg)
+            finally:
+                # تنظيف الملفات بعد الإرسال أو الفشل
+                if results:
+                    try:
+                        downloader.cleanup(results)
+                    except: pass
     except Exception as e:
         logger.error(f"FATAL error in handle_message: {e}", exc_info=True)
         print(f"DEBUG HANDLE_MSG ERROR: {e}")
