@@ -14,13 +14,13 @@ from telegram import Update
 import config
 from data import database
 
+logger = logging.getLogger(__name__)
+
 try:
     from utils import server_utils
 except ImportError as e:
     logger.error(f"❌ Failed to import server_utils: {e}")
     server_utils = None
-
-logger = logging.getLogger(__name__)
 
 # ─── تهيئة Flask ─────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

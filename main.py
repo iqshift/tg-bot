@@ -12,6 +12,9 @@ import threading
 import logging
 import os
 
+print(f"🚀 [INIT] Starting application in {os.getcwd()}")
+print(f"🚀 [INIT] PORT environment: {os.environ.get('PORT', '8080 (default)')}")
+
 import config
 from data import database
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
@@ -19,14 +22,21 @@ from bot.handlers import start, help_command, handle_message
 from web import server as web_server
 
 # ─── تهيئة السجلات ────────────────────────────────────────────────────────────
-os.makedirs(os.path.dirname(config.LOG_FILE), exist_ok=True)
+try:
+    os.makedirs(os.path.dirname(config.LOG_FILE), exist_ok=True)
+    file_handler = logging.FileHandler(config.LOG_FILE, encoding="utf-8")
+except Exception as e:
+    print(f"⚠️ Warning: Could not setup FileHandler for logging: {e}")
+    file_handler = None
+
+handlers = [logging.StreamHandler()]
+if file_handler:
+    handlers.append(file_handler)
+
 logging.basicConfig(
     format="%(asctime)s | %(name)-20s | %(levelname)-8s | %(message)s",
     level=logging.INFO,
-    handlers=[
-        logging.FileHandler(config.LOG_FILE, encoding="utf-8"),
-        logging.StreamHandler(),
-    ],
+    handlers=handlers,
 )
 logger = logging.getLogger(__name__)
 
