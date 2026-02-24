@@ -40,6 +40,42 @@ def _col_users():    return _get_col("users")
 def _col_settings(): return _get_col("settings")
 def _col_errors():   return _get_col("error_logs")
 def _col_whitelist(): return _get_col("whitelist")
+def _col_usage():     return _get_col("usage_stats")
+
+
+# ─── عداد الاستهلاك (Quota Tracking) ──────────────────────────────────────────
+def _track_usage(reads: int = 0, writes: int = 0, deletes: int = 0):
+    """تتبع استهلاك العمليات في Firestore لليوم الحالي."""
+    col = _col_usage()
+    if not col: return
+    
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    doc_ref = col.document(today)
+    
+    try:
+        # استخدام Increment لضمان السرعة والدقة بدون قراءة مسبقة
+        doc_ref.set({
+            "reads":   firestore.Increment(reads),
+            "writes":  firestore.Increment(writes),
+            "deletes": firestore.Increment(deletes),
+            "last_update": firestore.SERVER_TIMESTAMP
+        }, merge=True)
+    except Exception as e:
+        logger.warning(f"Error tracking usage: {e}")
+
+def get_usage_today() -> dict:
+    """جلب إحصائيات الاستهلاك لليوم الحالي."""
+    col = _col_usage()
+    if not col: return {"reads": 0, "writes": 0, "deletes": 0}
+    
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    try:
+        doc = col.document(today).get()
+        if doc.exists:
+            return doc.to_dict()
+    except:
+        pass
+    return {"reads": 0, "writes": 0, "deletes": 0}
 
 
 # ─── SQLite (تم استبداله بـ JSON) ──────────────────────────────────────────
@@ -131,10 +167,15 @@ def init_db() -> None:
         return
 
     try:
+        reads = 0
+        writes = 0
         for key, val in _DEFAULTS.items():
             doc_ref = col.document(key)
+            reads += 1
             if not doc_ref.get().exists:
                 doc_ref.set({"value": val})
+                writes += 1
+        _track_usage(reads=reads, writes=writes)
         logger.info("✅ Database initialized (Firestore)")
     except Exception as e:
         logger.error(f"Error during init_db: {e}")
@@ -143,6 +184,7 @@ def init_db() -> None:
 
 # ─── المستخدمون ──────────────────────────────────────────────────────────────
 def get_user(user_id: int) -> dict | None:
+    _track_usage(reads=1)
     doc = _col_users().document(str(user_id)).get()
     if not doc.exists:
         return None
@@ -159,6 +201,7 @@ def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "
     now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
     doc_ref = col.document(str(user_id))
     try:
+        _track_usage(reads=1)
         doc = doc_ref.get()
         if doc.exists:
             data = doc.to_dict()
@@ -184,6 +227,7 @@ def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "
                     needs_update = True
 
             if needs_update:
+                _track_usage(writes=1)
                 doc_ref.update({
                     "username":      username,
                     "first_name":    first_name,
@@ -193,6 +237,7 @@ def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "
                 })
         else:
             # مستخدم جديد (يظهر فوراً في لوحة التحكم)
+            _track_usage(writes=1)
             doc_ref.set({
                 "user_id":       user_id,
                 "username":      username,
@@ -209,6 +254,7 @@ def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "
 
 
 def ban_user(user_id: int, banned: bool) -> None:
+    _track_usage(writes=1)
     col = _col_users()
     if col: col.document(str(user_id)).update({"is_banned": banned})
 
@@ -223,6 +269,8 @@ def get_all_users() -> list[dict]:
             data = d.to_dict()
             data["user_id"] = int(d.id)
             result.append(data)
+        
+        _track_usage(reads=len(result))
         return result
     except Exception as e:
         logger.error(f"Error fetching users: {e}")
@@ -306,6 +354,7 @@ def get_setting(key: str, default: str = "") -> str:
     val = default
     if col:
         try:
+            _track_usage(reads=1)
             doc = col.document(key).get()
             if doc.exists:
                 val = doc.to_dict().get("value", default)
@@ -324,6 +373,7 @@ def set_setting(key: str, value: str) -> bool:
     col = _col_settings()
     if col:
         try:
+            _track_usage(writes=1)
             col.document(key).set({"value": value})
             with _cache_lock:
                 _settings_cache[key] = value
@@ -353,7 +403,11 @@ def get_stats() -> dict:
 
     try:
         users_stream = col_u.stream()
-        users_list = [d.to_dict() for d in users_stream]
+        users_list = []
+        for d in users_stream:
+            users_list.append(d.to_dict())
+        
+        _track_usage(reads=len(users_list))
         
         total   = len(users_list)
         banned  = sum(1 for u in users_list if u.get("is_banned", False))
@@ -361,8 +415,12 @@ def get_stats() -> dict:
         threshold = (now - datetime.timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
         active_24h = sum(1 for u in users_list if u.get("last_active", "") >= threshold)
         
-        total_errors    = sum(1 for _ in _col_errors().limit(1000).stream()) if _col_errors() else 0
-        whitelist_count = sum(1 for _ in _col_whitelist().limit(1000).stream()) if _col_whitelist() else 0
+        err_list = list(_col_errors().limit(1000).stream()) if _col_errors() else []
+        whitelist_list = list(_col_whitelist().limit(1000).stream()) if _col_whitelist() else []
+        _track_usage(reads=len(err_list) + len(whitelist_list))
+        
+        total_errors    = len(err_list)
+        whitelist_count = len(whitelist_list)
         
         _stats_cache = {
             "total_users":     total,
@@ -387,6 +445,7 @@ def log_error(user_id: int | None, platform: str, url: str, error_msg: str) -> N
     if col is None: return
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
+        _track_usage(writes=1)
         col.add({
             "user_id":   user_id,
             "platform":  platform,
@@ -401,21 +460,26 @@ def get_errors(limit: int = 100) -> list[dict]:
     col = _col_errors()
     if col is None: return []
     try:
-        docs = (
+        docs_stream = (
             col
             .order_by("timestamp", direction=firestore.Query.DESCENDING)
             .limit(limit)
             .stream()
         )
-        return [d.to_dict() for d in docs]
+        results = [d.to_dict() for d in docs_stream]
+        _track_usage(reads=len(results))
+        return results
     except: return []
 
 
 def clear_errors() -> None:
     col = _col_errors()
     if col:
+        count = 0
         for doc in col.stream():
             doc.reference.delete()
+            count += 1
+        _track_usage(reads=count, deletes=count)
 
 
 # ─── إدارة البروكسيات ────────────────────────────────────────────────────────
@@ -443,6 +507,7 @@ def remove_proxy(proxy: str) -> None:
 def get_whitelisted(user_id: int) -> dict | None:
     col = _col_whitelist()
     if col:
+        _track_usage(reads=1)
         doc = col.document(str(user_id)).get()
         return doc.to_dict() if doc.exists else None
     return None
@@ -451,6 +516,7 @@ def get_whitelisted(user_id: int) -> dict | None:
 def add_to_whitelist(user_id: int, custom_reply: str = "") -> None:
     col = _col_whitelist()
     if col:
+        _track_usage(writes=1)
         col.document(str(user_id)).set({
             "user_id":      user_id,
             "custom_reply": custom_reply,
@@ -460,12 +526,15 @@ def add_to_whitelist(user_id: int, custom_reply: str = "") -> None:
 
 def remove_from_whitelist(user_id: int) -> None:
     col = _col_whitelist()
-    if col: col.document(str(user_id)).delete()
+    if col:
+        _track_usage(deletes=1)
+        col.document(str(user_id)).delete()
 
 
 def is_whitelisted(user_id: int) -> bool:
     col = _col_whitelist()
     if col:
+        _track_usage(reads=1)
         return col.document(str(user_id)).get().exists
     return False
 
@@ -473,6 +542,8 @@ def is_whitelisted(user_id: int) -> bool:
 def get_all_whitelist() -> list[dict]:
     col = _col_whitelist()
     if col:
-        docs = col.stream()
-        return [d.to_dict() for d in docs]
+        docs_stream = col.stream()
+        results = [d.to_dict() for d in docs_stream]
+        _track_usage(reads=len(results))
+        return results
     return []

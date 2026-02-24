@@ -93,13 +93,19 @@ def dashboard():
     channels_list = [c.strip() for c in (settings["required_channels"] or "").split(",") if c.strip()]
     whitelist = database.get_all_whitelist()
     
+    # جلب الاستهلاك الفعلي لليوم
+    usage_today = database.get_usage_today()
+    
     # تفاصيل الخطة المجانية لـ Firestore (Firebase Free Tier)
     cloud_limits = {
         "reads_daily": "50,000",
         "writes_daily": "20,000",
         "deletes_daily": "20,000",
         "storage_free": "1 GiB",
-        "network_free": "10 GiB/month"
+        "network_free": "10 GiB/month",
+        "reads_used": usage_today.get("reads", 0),
+        "writes_used": usage_today.get("writes", 0),
+        "deletes_used": usage_today.get("deletes", 0),
     }
 
     return render_template(

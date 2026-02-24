@@ -1355,41 +1355,83 @@
                             style="margin-top: 24px; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.1);">
                             <div class="card-header">
                                 <h4 class="card-title" style="color: #f59e0b;"><i class="fa-solid fa-cloud"
-                                        style="margin-left: 8px;"></i>حدود الخطة المجانية (Google Firestore Free Tier)
+                                        style="margin-left: 8px;"></i>إحصائيات استهلاك السحابة اليومي (Firestore Quota)
                                 </h4>
+                                <span class="badge"
+                                    style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; font-size: 10px;">تحديث
+                                    لحظي</span>
                             </div>
                             <div class="stats-grid"
-                                style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); padding: 15px; gap: 12px;">
-                                <div class="stat-item"
-                                    style="text-align: center; padding: 10px; background: rgba(15, 23, 42, 0.3); border-radius: 8px;">
-                                    <span style="display: block; font-size: 18px; font-weight: 800; color: #fff;">{{
-                                        cloud_limits.reads_daily }}</span>
-                                    <span style="font-size: 11px; color: var(--text-muted);">قراءة مستند/يومياً</span>
+                                style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); padding: 15px; gap: 15px;">
+                                <!-- Reads Tracker -->
+                                <div class="stat-item glass"
+                                    style="padding: 15px; background: rgba(15, 23, 42, 0.4); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                        <span style="font-size: 12px; color: var(--text-muted);">القراءات (Reads)</span>
+                                        <span style="font-size: 10px; color: #10b981;">{{ cloud_limits.reads_daily }}
+                                            مجانية</span>
+                                    </div>
+                                    <div style="font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 5px;">{{
+                                        "{:,}".format(cloud_limits.reads_used) }}</div>
+                                    <div style="font-size: 11px; color: #f59e0b;">المتبقي اليوم: {{ "{:,}".format(50000
+                                        - cloud_limits.reads_used) }}</div>
+                                    <div
+                                        style="width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 10px; overflow: hidden;">
+                                        <div
+                                            style="width: {{ (cloud_limits.reads_used / 50000 * 100)|round(1) }}%; height: 100%; background: #f59e0b;">
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="stat-item"
-                                    style="text-align: center; padding: 10px; background: rgba(15, 23, 42, 0.3); border-radius: 8px;">
-                                    <span style="display: block; font-size: 18px; font-weight: 800; color: #fff;">{{
-                                        cloud_limits.writes_daily }}</span>
-                                    <span style="font-size: 11px; color: var(--text-muted);">كتابة مستند/يومياً</span>
+
+                                <!-- Writes Tracker -->
+                                <div class="stat-item glass"
+                                    style="padding: 15px; background: rgba(15, 23, 42, 0.4); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                        <span style="font-size: 12px; color: var(--text-muted);">الكتابات
+                                            (Writes)</span>
+                                        <span style="font-size: 10px; color: #10b981;">{{ cloud_limits.writes_daily }}
+                                            مجانية</span>
+                                    </div>
+                                    <div style="font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 5px;">{{
+                                        "{:,}".format(cloud_limits.writes_used) }}</div>
+                                    <div style="font-size: 11px; color: #f59e0b;">المتبقي اليوم: {{ "{:,}".format(20000
+                                        - cloud_limits.writes_used) }}</div>
+                                    <div
+                                        style="width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 10px; overflow: hidden;">
+                                        <div
+                                            style="width: {{ (cloud_limits.writes_used / 20000 * 100)|round(1) }}%; height: 100%; background: #3b82f6;">
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="stat-item"
-                                    style="text-align: center; padding: 10px; background: rgba(15, 23, 42, 0.3); border-radius: 8px;">
-                                    <span style="display: block; font-size: 18px; font-weight: 800; color: #fff;">{{
-                                        cloud_limits.deletes_daily }}</span>
-                                    <span style="font-size: 11px; color: var(--text-muted);">حذف مستند/يومياً</span>
-                                </div>
-                                <div class="stat-item"
-                                    style="text-align: center; padding: 10px; background: rgba(15, 23, 42, 0.3); border-radius: 8px;">
-                                    <span style="display: block; font-size: 18px; font-weight: 800; color: #fff;">{{
-                                        cloud_limits.storage_free }}</span>
-                                    <span style="font-size: 11px; color: var(--text-muted);">مساحة تخزين مجانية</span>
+
+                                <!-- Deletes Tracker -->
+                                <div class="stat-item glass"
+                                    style="padding: 15px; background: rgba(15, 23, 42, 0.4); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                        <span style="font-size: 12px; color: var(--text-muted);">الحذف (Deletes)</span>
+                                        <span style="font-size: 10px; color: #10b981;">{{ cloud_limits.deletes_daily }}
+                                            مجانية</span>
+                                    </div>
+                                    <div style="font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 5px;">{{
+                                        "{:,}".format(cloud_limits.deletes_used) }}</div>
+                                    <div style="font-size: 11px; color: #f59e0b;">المتبقي اليوم: {{ "{:,}".format(20000
+                                        - cloud_limits.deletes_used) }}</div>
+                                    <div
+                                        style="width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 10px; overflow: hidden;">
+                                        <div
+                                            style="width: {{ (cloud_limits.deletes_used / 20000 * 100)|round(1) }}%; height: 100%; background: #ef4444;">
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div
                                 style="padding: 0 20px 20px; font-size: 12px; color: var(--text-muted); line-height: 1.6;">
                                 <i class="fa-solid fa-circle-info" style="margin-left: 5px; color: #f59e0b;"></i>
-                                تم تصميم البوت ليعمل بحكمة ضمن هذه الحدود. تحديثات "آخر ظهور" تتم كل ساعة لتوفير
-                                العمليات وضمان بقاء الخدمة مجانية لك بالكامل.
+                                يتم تتبع هذا الاستهلاك من داخل البوت مباشرة. توفر الخطة المجانية {{
+                                cloud_limits.storage_free }} للتخزين و {{ cloud_limits.network_free }} للنقل شهرياً.
                             </div>
                         </div>
                     </div>
