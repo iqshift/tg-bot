@@ -1007,9 +1007,13 @@
                                             (مثل رابط Cloud Run).</small>
                                     </div>
                                 </div>
-                                <div style="display: flex; justify-content: flex-end; margin-top: 15px;">
+                                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
                                     <button type="submit" class="btn btn-primary">
-                                        <i class="fa-solid fa-link"></i> حفظ إعدادات الربط
+                                        <i class="fa-solid fa-save"></i> حفظ الإعدادات
+                                    </button>
+                                    <button type="button" class="btn btn-outline" onclick="activateWebhook(event)"
+                                        style="border-color: var(--primary); color: var(--primary);">
+                                        <i class="fa-solid fa-bolt"></i> تفعيل الويب-هوك فوراً
                                     </button>
                                 </div>
                             </form>
@@ -1530,6 +1534,30 @@
             } catch (error) {
                 console.error('Error:', error);
                 alert('❌ حدث خطأ تقني في الاتصال.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = oldHtml;
+            }
+        }
+
+        async function activateWebhook(event) {
+            const btn = event.currentTarget;
+            const oldHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التفعيل...';
+
+            try {
+                const response = await fetch('/api/activate_webhook', { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    alert('✅ تم تفعيل الويب-هوك بنجاح!\n\nتفاصيل الرد:\n' + JSON.stringify(result.data, null, 2));
+                } else {
+                    alert('❌ فشل التفعيل:\n' + (result.error || 'خطأ غير معروف'));
+                }
+            } catch (err) {
+                console.error(err);
+                alert('فشل الاتصال بالسيرفر');
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = oldHtml;

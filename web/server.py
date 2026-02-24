@@ -265,8 +265,30 @@ def api_save_settings():
     except Exception as e:
         logger.error(f"Error saving settings: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+@app.route("/api/activate_webhook", methods=["POST"])
+def api_activate_webhook():
+    """تفعيل الويب-هوك من تليجرام باستخدام التوكن والويب-هوك المخزن."""
+    try:
+        token = database.get_setting("telegram_token", config.TELEGRAM_TOKEN)
+        url   = database.get_setting("webhook_url", config.WEBHOOK_URL)
 
-@app.route("/unban_user/<int:user_id>", methods=["POST"])
+        if not token or not url:
+            return jsonify({"success": False, "error": "Token or Webhook URL missing"}), 400
+
+        clean_url = url.rstrip("/") + "/webhook"
+        tg_api_url = f"https://api.telegram.org/bot{token}/setWebhook?url={clean_url}"
+        
+        response = http_requests.get(tg_api_url, timeout=10)
+        data = response.json()
+        
+        if data.get("ok"):
+            return jsonify({"success": True, "data": data})
+        else:
+            return jsonify({"success": False, "error": data.get("description", "Unknown error"), "data": data})
+            
+    except Exception as e:
+        logger.error(f"Error activating webhook: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 def unban_user(user_id: int):
     database.ban_user(user_id, False)
     flash(f"تم رفع الحظر عن {user_id}", "success")
