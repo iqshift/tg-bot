@@ -74,12 +74,18 @@ async def init_bot(app):
     await app.start()
 
     # إعادة قراءة رابط الويب هوك من الملف
+    # إعادة قراءة رابط الويب هوك من الملف
     webhook_url_config = config._read_secret(config.WEBHOOK_URL_FILE, env_key="WEBHOOK_URL")
     if not webhook_url_config:
         webhook_url_config = database.get_setting("webhook_url", "")
 
     if webhook_url_config:
-        webhook_url = webhook_url_config.rstrip("/") + "/webhook"
+        # تنظيف الرابط لضمان عدم التكرار
+        base_url = webhook_url_config.strip().rstrip("/")
+        if base_url.endswith("/webhook"):
+            base_url = base_url[:-8].rstrip("/")
+        
+        webhook_url = base_url + "/webhook"
         await app.bot.set_webhook(url=webhook_url, allowed_updates=["message"])
         logger.info("✅ Webhook registered: %s", webhook_url)
     else:
@@ -138,10 +144,16 @@ def run_bot_in_thread(initial_app):
     asyncio.set_event_loop(loop)
     web_server.bot_loop = loop
     
-    # تصدير دالة إعادة التشغيل ليستخدمها Flask
+    # تصحيح: تهيئة الحدث داخل الـ loop
+    global _restart_request
+    _restart_request = asyncio.Event()
+
+    # تصدير دالة إعادة التشغيل بشكل صحيح للوحة التحكم
     def trigger_restart():
         loop.call_soon_threadsafe(_restart_request.set)
-    web_server.trigger_bot_restart = trigger_restart
+    
+    # ربط الدالة بـ Flask app مباشرة لسهولة الوصول
+    web_server.app.trigger_bot_restart = trigger_restart
 
     try:
         loop.run_until_complete(bot_main_loop(initial_app))

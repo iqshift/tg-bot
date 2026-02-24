@@ -275,9 +275,9 @@ def api_save_settings():
                     config._write_secret(config.WEBHOOK_URL_FILE, str(val))
 
         # 3. تفعيل "إعادة التشغيل السريع" إذا تغير التوكن
-        if token_changed and 'trigger_bot_restart' in globals():
+        if token_changed and hasattr(app, 'trigger_bot_restart'):
             logger.info("⚡ Token changed! Signaling hot reload...")
-            globals()['trigger_bot_restart']()
+            app.trigger_bot_restart()
 
         return jsonify({"success": True})
     except Exception as e:
@@ -293,7 +293,12 @@ def api_activate_webhook():
         if not token or not url:
             return jsonify({"success": False, "error": "Token or Webhook URL missing"}), 400
 
-        clean_url = url.rstrip("/") + "/webhook"
+        # تنظيف الرابط لضمان عدم التكرار (نفس منطق main.py)
+        base_url = url.strip().rstrip("/")
+        if base_url.endswith("/webhook"):
+            base_url = base_url[:-8].rstrip("/")
+            
+        clean_url = base_url + "/webhook"
         tg_api_url = f"https://api.telegram.org/bot{token}/setWebhook?url={clean_url}"
         
         response = http_requests.get(tg_api_url, timeout=10)
