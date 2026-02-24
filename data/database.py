@@ -1,12 +1,7 @@
-"""
-data/database.py - طبقة قاعدة البيانات (هجين)
-  - Google Firestore  → المستخدمون + الإعدادات + البروكسيات + الأخطاء  (دائم)
-  - SQLite محلي       → سجل المحادثات فقط                              (مؤقت / سريع)
-"""
 import datetime
 import logging
-import sqlite3
 import threading
+import os
 
 import config
 from google.cloud import firestore
@@ -47,32 +42,7 @@ def _col_errors():   return _get_col("error_logs")
 def _col_whitelist(): return _get_col("whitelist")
 
 
-# ─── SQLite للمحادثات (مؤقت / سريع) ──────────────────────────────────────────
-_sqlite_local = threading.local()
-_sqlite_write_lock = threading.Lock()
-
-
-def _get_sqlite():
-    """اتصال SQLite مخصص لكل خيط للمحادثات فقط."""
-    import os
-    if not hasattr(_sqlite_local, "conn") or _sqlite_local.conn is None:
-        os.makedirs(os.path.dirname(config.DB_PATH), exist_ok=True)
-        conn = sqlite3.connect(config.DB_PATH, check_same_thread=False, timeout=10)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id      INTEGER,
-                message_type TEXT,
-                message_text TEXT,
-                timestamp    TEXT
-            )
-        """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_msg_user ON messages(user_id, timestamp)")
-        conn.commit()
-        _sqlite_local.conn = conn
-    return _sqlite_local.conn
+# ─── SQLite (تم استبداله بـ JSON) ──────────────────────────────────────────
 
 
 # ─── القيم الافتراضية ─────────────────────────────────────────────────────────
@@ -192,23 +162,25 @@ def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "
         doc = doc_ref.get()
         if doc.exists:
             data = doc.to_dict()
-            last_active_str = data.get("last_active", "")
-            needs_update = False
+            # تحديث فوري إذا كان هناك تغيير في الاسم أو الصورة أو مر وقت كافٍ
+            needs_update = (
+                data.get("username") != username or 
+                data.get("first_name") != first_name or 
+                data.get("photo_url") != photo_url
+            )
             
-            # تحديث فقط إذا كان هناك تغيير في الاسم أو الصورة
-            if data.get("username") != username or data.get("first_name") != first_name or data.get("photo_url") != photo_url:
-                needs_update = True
-                
-            # أو إذا مر أكثر من 12 ساعة على آخر ظهور (لتقليل الكتابة)
-            if last_active_str:
-                try:
-                    last_dt = datetime.datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")
-                    if (now_dt - last_dt).total_seconds() > 43200: # 12 hours
+            # إذا لم يتغير الاسم، نحدث تاريخ آخر ظهور فقط إذا مر أكثر من ساعة واحدة (بدلاً من 12) لزيادة الدقة
+            if not needs_update:
+                last_active_str = data.get("last_active", "")
+                if last_active_str:
+                    try:
+                        last_dt = datetime.datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")
+                        if (now_dt - last_dt).total_seconds() > 3600: # تحديث كل ساعة بدقة أعلى
+                            needs_update = True
+                    except:
                         needs_update = True
-                except:
+                else:
                     needs_update = True
-            else:
-                needs_update = True
 
             if needs_update:
                 doc_ref.update({
@@ -218,6 +190,7 @@ def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "
                     "photo_url":   photo_url,
                 })
         else:
+            # مستخدم جديد (يظهر فوراً في لوحة التحكم)
             doc_ref.set({
                 "user_id":     user_id,
                 "username":    username,
@@ -227,6 +200,7 @@ def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "
                 "is_banned":   False,
                 "photo_url":   photo_url,
             })
+            logger.info(f"🆕 New user registered: {first_name} ({user_id})")
     except Exception as e:
         logger.error(f"Error in upsert_user: {e}")
 
@@ -252,26 +226,69 @@ def get_all_users() -> list[dict]:
         return []
 
 
-# ─── الرسائل (SQLite - مؤقت/سريع) ──────────────────────────────────────────
+# ─── الرسائل (JSON - محلي / مؤقت) ──────────────────────────────────────────
+_messages_file = "data/messages.json"
+_messages_lock = threading.Lock()
+
 def log_message(user_id: int, message_type: str, message_text: str) -> None:
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with _sqlite_write_lock:
-        conn = _get_sqlite()
-        conn.execute(
-            "INSERT INTO messages (user_id, message_type, message_text, timestamp) VALUES (?,?,?,?)",
-            (user_id, message_type, message_text, now),
-        )
-        conn.commit()
+    """حفظ رسالة في ملف JSON محلي (مؤقت)."""
+    import json
+    import os
+    
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    new_msg = {
+        "user_id": user_id,
+        "type": message_type,
+        "text": message_text,
+        "timestamp": now_str
+    }
+    
+    with _messages_lock:
+        try:
+            os.makedirs(os.path.dirname(_messages_file), exist_ok=True)
+            msgs = []
+            if os.path.exists(_messages_file):
+                with open(_messages_file, "r", encoding="utf-8") as f:
+                    try:
+                        msgs = json.load(f)
+                    except:
+                        msgs = []
+            
+            msgs.append(new_msg)
+            # الاحتفاظ بآخر 1000 رسالة فقط لضمان الخفة
+            if len(msgs) > 1000:
+                msgs = msgs[-1000:]
+                
+            with open(_messages_file, "w", encoding="utf-8") as f:
+                json.dump(msgs, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Error logging to JSON: {e}")
 
 
 def get_user_messages(user_id: int, limit: int = 50) -> list[dict]:
-    conn   = _get_sqlite()
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT * FROM messages WHERE user_id=? ORDER BY timestamp DESC LIMIT ?",
-        (user_id, limit),
-    )
-    return [dict(r) for r in reversed(cursor.fetchall())]
+    """جلب رسائل مستخدم معين من ملف JSON."""
+    import json
+    import os
+    
+    with _messages_lock:
+        if not os.path.exists(_messages_file):
+            return []
+        try:
+            with open(_messages_file, "r", encoding="utf-8") as f:
+                msgs = json.load(f)
+                user_msgs = [m for m in msgs if m["user_id"] == user_id]
+                # إرجاع النتائج بتنسيق SQLiterow المتوقع في لوحة التحكم
+                return [
+                    {
+                        "user_id": m["user_id"],
+                        "message_type": m["type"],
+                        "message_text": m["text"],
+                        "timestamp": m["timestamp"]
+                    }
+                    for m in user_msgs[-limit:]
+                ]
+        except:
+            return []
 
 
 # ─── الإعدادات ───────────────────────────────────────────────────────────────
