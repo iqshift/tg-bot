@@ -10,12 +10,6 @@ SECRETS_DIR = os.path.join(BASE_DIR, "secrets")
 
 
 def _read_secret(filename: str, env_key: str = "", default: str = "") -> str:
-    """
-    يقرأ القيمة بهذا الترتيب:
-      1. متغير البيئة (Cloud Run / Docker env vars)
-      2. ملف في secrets/ (VPS / محلي)
-      3. القيمة الافتراضية
-    """
     # 1. متغير البيئة
     if env_key and os.environ.get(env_key):
         return os.environ[env_key]
@@ -31,13 +25,28 @@ def _read_secret(filename: str, env_key: str = "", default: str = "") -> str:
         pass
     return default
 
+def _write_secret(filename: str, value: str) -> bool:
+    """كتابة القيمة في ملف في مجلد secrets/"""
+    try:
+        os.makedirs(SECRETS_DIR, exist_ok=True)
+        path = os.path.join(SECRETS_DIR, filename)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(value.strip())
+        return True
+    except Exception as e:
+        print(f"❌ Error writing secret {filename}: {e}")
+        return False
+
 
 # ─── Telegram ─────────────────────────────────────────────────────────────────
-TELEGRAM_TOKEN: str = _read_secret("token.txt",       env_key="TELEGRAM_TOKEN")
-PROXY_URL: str      = _read_secret("proxy.txt",       env_key="PROXY_URL")
+TELEGRAM_TOKEN_FILE = "token.txt"
+WEBHOOK_URL_FILE    = "webhook_url.txt"
+
+TELEGRAM_TOKEN: str = _read_secret(TELEGRAM_TOKEN_FILE, env_key="TELEGRAM_TOKEN")
+PROXY_URL: str      = _read_secret("proxy.txt",         env_key="PROXY_URL")
 
 # ─── Webhook ──────────────────────────────────────────────────────────────────
-WEBHOOK_URL: str    = _read_secret("webhook_url.txt", env_key="WEBHOOK_URL")
+WEBHOOK_URL: str    = _read_secret(WEBHOOK_URL_FILE,    env_key="WEBHOOK_URL")
 WEBHOOK_PORT: int   = int(os.environ.get("PORT", 8080))
 
 # ─── Database ─────────────────────────────────────────────────────────────────

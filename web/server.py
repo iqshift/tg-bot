@@ -64,7 +64,12 @@ def dashboard():
         "msg_complete", "msg_error", "msg_banned", "msg_caption",
         "required_channels", "msg_force_sub", "share_msg", "share_btn_text",
     ]
-    settings      = {k: database.get_setting(k) for k in settings_keys}
+    settings = {k: database.get_setting(k) for k in settings_keys}
+    
+    # جلب التوكن والويب هوك من الملفات النصية كأولوية (بناءً على طلبك)
+    settings["telegram_token"] = config._read_secret(config.TELEGRAM_TOKEN_FILE, env_key="TELEGRAM_TOKEN")
+    settings["webhook_url"]    = config._read_secret(config.WEBHOOK_URL_FILE, env_key="WEBHOOK_URL")
+
     channels_list = [c.strip() for c in (settings["required_channels"] or "").split(",") if c.strip()]
     whitelist = database.get_all_whitelist()
     return render_template(
@@ -75,7 +80,6 @@ def dashboard():
         settings=settings,
         channels_list=channels_list,
         whitelist=whitelist,
-        bot_token=config.TELEGRAM_TOKEN,
     )
 
 
@@ -243,7 +247,7 @@ def ban_user(user_id: int):
 
 @app.route("/api/save_settings", methods=["POST"])
 def api_save_settings():
-    """حفظ الإعدادات العامة للبوت."""
+    """حفظ الإعدادات العامة للبوت في الملفات النصية و Firestore."""
     try:
         data = request.json
         if not data:
@@ -257,9 +261,23 @@ def api_save_settings():
             "telegram_token", "webhook_url"
         ]
 
+        token_changed = False
         for key, val in data.items():
             if key in allowed_keys:
+                # 1. الحفظ في قاعدة البيانات (لضمان المزامنة)
                 database.set_setting(key, str(val))
+                
+                # 2. الحفظ في ملفات نصية (بناءً على طلب المستخدم)
+                if key == "telegram_token":
+                    config._write_secret(config.TELEGRAM_TOKEN_FILE, str(val))
+                    token_changed = True
+                elif key == "webhook_url":
+                    config._write_secret(config.WEBHOOK_URL_FILE, str(val))
+
+        # 3. تفعيل "إعادة التشغيل السريع" إذا تغير التوكن
+        if token_changed and 'trigger_bot_restart' in globals():
+            logger.info("⚡ Token changed! Signaling hot reload...")
+            globals()['trigger_bot_restart']()
 
         return jsonify({"success": True})
     except Exception as e:

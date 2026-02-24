@@ -43,12 +43,9 @@ logger = logging.getLogger(__name__)
 
 # ─── بناء التطبيق ────────────────────────────────────────────────────────────
 def build_application(force_token=None):
-    token = force_token or config.TELEGRAM_TOKEN
+    # إعادة قراءة الملف للتأكد من الحصول على أحدث توكن مخزن
+    token = force_token or config._read_secret(config.TELEGRAM_TOKEN_FILE, env_key="TELEGRAM_TOKEN")
     
-    # تحذير: لا تحاول جلب التوكن من Firestore هنا!
-    # استدعاء Firestore في الخيط الرئيسي قد يعطل بدء Flask إذا كانت القاعدة غير مفعلة.
-    # سيتم جلب التوكن في خيط البوت المنفصل لاحقاً.
-
     if not token:
         logger.error("❌ TELEGRAM_TOKEN is missing! Bot construction delayed.")
         return None
@@ -67,6 +64,8 @@ def build_application(force_token=None):
 
 async def init_bot(app):
     """تهيئة البوت وتسجيل الـ Webhook مع Telegram."""
+    if not app: return
+    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help",  help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -74,7 +73,8 @@ async def init_bot(app):
     await app.initialize()
     await app.start()
 
-    webhook_url_config = config.WEBHOOK_URL
+    # إعادة قراءة رابط الويب هوك من الملف
+    webhook_url_config = config._read_secret(config.WEBHOOK_URL_FILE, env_key="WEBHOOK_URL")
     if not webhook_url_config:
         webhook_url_config = database.get_setting("webhook_url", "")
 
@@ -85,38 +85,66 @@ async def init_bot(app):
     else:
         logger.warning("⚠️ WEBHOOK_URL غير موجود - البوت لن يستقبل تحديثات")
 
-    # انتظر إلى الأبد (Flask يعمل في الخيط الرئيسي)
-    await asyncio.Event().wait()
+# خزانة لمشاركة حالة إعادة التشغيل مع الخوادم الأخرى
+_restart_request = asyncio.Event()
+
+async def bot_main_loop(initial_app):
+    """الحلقة المستمرة للبوت التي تدعم إعادة التشغيل السريع."""
+    app = initial_app
+    
+    while True:
+        # إذا لم يكن هناك تطبيق (توكن مفقود مثلاً)، نحاول بناءه
+        if app is None:
+            while app is None:
+                token = config._read_secret(config.TELEGRAM_TOKEN_FILE, env_key="TELEGRAM_TOKEN")
+                if token:
+                    app = build_application(force_token=token)
+                    web_server.bot_app = app
+                    if app: break
+                logger.warning("🕒 Waiting for TELEGRAM_TOKEN... (Next retry in 30s)")
+                await asyncio.sleep(30)
+
+        # تهيئة وتشغيل البوت الحالي
+        bot_task = asyncio.create_task(init_bot(app))
+        
+        # الانتظار حتى يطلب السيرفر إعادة تشغيل (Hot Reload)
+        await _restart_request.wait()
+        _restart_request.clear()
+        
+        logger.info("🔄 Hot Reload Triggered: Restarting Bot Application...")
+        
+        # إيقاف البوت القديم بسلام
+        if app:
+            try:
+                await app.stop()
+                await app.shutdown()
+            except Exception as e:
+                logger.error(f"Error during bot shutdown: {e}")
+        
+        # بناء البوت من جديد بأحدث الإعدادات
+        app = build_application()
+        web_server.bot_app = app
+        logger.info("🚀 Bot Application Rebuilt.")
 
 
 def run_bot_in_thread(initial_app):
     """تشغيل event loop الخاص بالبوت في خيط منفصل."""
-    # ✅ init_db هنا بدلاً من قبل Flask - حتى لا يعطّل بدء الخادم
     try:
         database.init_db()
     except Exception as exc:
         logger.error("❌ DB init failed: %s", exc)
 
-    app = initial_app
-    
-    # إذا لم يكن التوكن موجوداً، نحاول جلبه من DB كل دقيقة حتى يتوفر
-    while app is None:
-        token = database.get_setting("telegram_token", "")
-        if token:
-            logger.info("🔑 Token found in Firestore! Building application...")
-            app = build_application(force_token=token)
-            web_server.bot_app = app
-            if app: break
-        
-        logger.warning("🕒 Waiting for TELEGRAM_TOKEN... (Next retry in 60s)")
-        import time
-        time.sleep(60)
-
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     web_server.bot_loop = loop
+    
+    # تصدير دالة إعادة التشغيل ليستخدمها Flask
+    def trigger_restart():
+        loop.call_soon_threadsafe(_restart_request.set)
+    web_server.trigger_bot_restart = trigger_restart
+
     try:
-        loop.run_until_complete(init_bot(app))
+        loop.run_until_complete(bot_main_loop(initial_app))
     except Exception as exc:
         logger.error("❌ Bot thread failed: %s", exc)
 
@@ -124,19 +152,14 @@ def run_bot_in_thread(initial_app):
 # ─── نقطة الدخول ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     application = build_application()
-
-    # مشاركة الـ application مع Flask
     web_server.bot_app = application
 
-    # تشغيل البوت في الخلفية (لا ننتظره)
     bot_thread = threading.Thread(
         target=run_bot_in_thread, args=(application,), daemon=True
     )
     bot_thread.start()
     logger.info("🤖 Bot thread started in background")
 
-    # ✅ Flask يبدأ فوراً بدون انتظار البوت
-    # Cloud Run يحتاج الـ port مفتوح خلال ثواني قليلة
     port = config.WEBHOOK_PORT
     logger.info("🌐 Starting Flask on 0.0.0.0:%d", port)
     web_server.app.run(
