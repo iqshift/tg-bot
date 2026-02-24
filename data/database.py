@@ -21,21 +21,30 @@ _settings_cache: dict = {}
 
 
 def _get_db() -> firestore.Client:
-    """إنشاء اتصال Firestore مرة واحدة وإعادة استخدامه."""
+    """إنشاء اتصال Firestore مرة واحدة وإعادة استخدامه، مع معالجة فشل الاتصال."""
     global _db
     if _db is None:
         with _db_lock:
             if _db is None:
-                _db = firestore.Client()
-                logger.info("🔥 Firestore client created")
+                try:
+                    _db = firestore.Client()
+                    logger.info("🔥 Firestore client created successfully")
+                except Exception as e:
+                    logger.error(f"❌ Firestore Initialization Failed: {e}")
+                    logger.warning("⚠️ Application will continue without persistent database storage.")
+                    return None
     return _db
 
 
 # ─── اختصارات Collections (Firestore) ───────────────────────────────────────
-def _col_users():    return _get_db().collection("users")
-def _col_settings(): return _get_db().collection("settings")
-def _col_errors():   return _get_db().collection("error_logs")
-def _col_whitelist(): return _get_db().collection("whitelist")
+def _get_col(name):
+    db = _get_db()
+    return db.collection(name) if db else None
+
+def _col_users():    return _get_col("users")
+def _col_settings(): return _get_col("settings")
+def _col_errors():   return _get_col("error_logs")
+def _col_whitelist(): return _get_col("whitelist")
 
 
 # ─── SQLite للمحادثات (مؤقت / سريع) ──────────────────────────────────────────
@@ -145,14 +154,20 @@ _DEFAULTS = {
 def init_db() -> None:
     """
     تهيئة Firestore - يضيف الإعدادات الافتراضية إذا لم تكن موجودة.
-    (INSERT OR IGNORE behavior)
     """
-    settings = _col_settings()
-    for key, val in _DEFAULTS.items():
-        doc_ref = settings.document(key)
-        if not doc_ref.get().exists:
-            doc_ref.set({"value": val})
-            logger.info("⚙️ تهيئة الإعداد: %s", key)
+    col = _col_settings()
+    if col is None:
+        logger.warning("⚠️ Skipping init_db: Firestore is NOT active.")
+        return
+
+    try:
+        for key, val in _DEFAULTS.items():
+            doc_ref = col.document(key)
+            if not doc_ref.get().exists:
+                doc_ref.set({"value": val})
+        logger.info("✅ Database initialized (Firestore)")
+    except Exception as e:
+        logger.error(f"Error during init_db: {e}")
     logger.info("✅ Firestore جاهز")
 
 
@@ -167,62 +182,74 @@ def get_user(user_id: int) -> dict | None:
 
 
 def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "") -> None:
+    col = _col_users()
+    if col is None: return
+
     now_dt = datetime.datetime.now()
     now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
-    doc_ref = _col_users().document(str(user_id))
-    doc = doc_ref.get()
-    
-    if doc.exists:
-        data = doc.to_dict()
-        last_active_str = data.get("last_active", "")
-        needs_update = False
-        
-        # تحديث فقط إذا كان هناك تغيير في الاسم أو الصورة
-        if data.get("username") != username or data.get("first_name") != first_name or data.get("photo_url") != photo_url:
-            needs_update = True
+    doc_ref = col.document(str(user_id))
+    try:
+        doc = doc_ref.get()
+        if doc.exists:
+            data = doc.to_dict()
+            last_active_str = data.get("last_active", "")
+            needs_update = False
             
-        # أو إذا مر أكثر من 12 ساعة على آخر ظهور (لتقليل الكتابة)
-        if last_active_str:
-            try:
-                last_dt = datetime.datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")
-                if (now_dt - last_dt).total_seconds() > 43200: # 12 hours
-                    needs_update = True
-            except:
+            # تحديث فقط إذا كان هناك تغيير في الاسم أو الصورة
+            if data.get("username") != username or data.get("first_name") != first_name or data.get("photo_url") != photo_url:
                 needs_update = True
-        else:
-            needs_update = True
+                
+            # أو إذا مر أكثر من 12 ساعة على آخر ظهور (لتقليل الكتابة)
+            if last_active_str:
+                try:
+                    last_dt = datetime.datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")
+                    if (now_dt - last_dt).total_seconds() > 43200: # 12 hours
+                        needs_update = True
+                except:
+                    needs_update = True
+            else:
+                needs_update = True
 
-        if needs_update:
-            doc_ref.update({
+            if needs_update:
+                doc_ref.update({
+                    "username":    username,
+                    "first_name":  first_name,
+                    "last_active": now_str,
+                    "photo_url":   photo_url,
+                })
+        else:
+            doc_ref.set({
+                "user_id":     user_id,
                 "username":    username,
                 "first_name":  first_name,
+                "joined_date": now_str,
                 "last_active": now_str,
+                "is_banned":   False,
                 "photo_url":   photo_url,
             })
-    else:
-        doc_ref.set({
-            "user_id":     user_id,
-            "username":    username,
-            "first_name":  first_name,
-            "joined_date": now_str,
-            "last_active": now_str,
-            "is_banned":   False,
-            "photo_url":   photo_url,
-        })
+    except Exception as e:
+        logger.error(f"Error in upsert_user: {e}")
 
 
 def ban_user(user_id: int, banned: bool) -> None:
-    _col_users().document(str(user_id)).update({"is_banned": banned})
+    col = _col_users()
+    if col: col.document(str(user_id)).update({"is_banned": banned})
 
 
 def get_all_users() -> list[dict]:
-    docs = _col_users().stream()
-    result = []
-    for d in docs:
-        data = d.to_dict()
-        data["user_id"] = int(d.id)
-        result.append(data)
-    return result
+    col = _col_users()
+    if col is None: return []
+    try:
+        docs = col.stream()
+        result = []
+        for d in docs:
+            data = d.to_dict()
+            data["user_id"] = int(d.id)
+            result.append(data)
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching users: {e}")
+        return []
 
 
 # ─── الرسائل (SQLite - مؤقت/سريع) ──────────────────────────────────────────
@@ -249,20 +276,41 @@ def get_user_messages(user_id: int, limit: int = 50) -> list[dict]:
 
 # ─── الإعدادات ───────────────────────────────────────────────────────────────
 def get_setting(key: str, default: str = "") -> str:
+    # التحقق من الكاش أولاً
     with _cache_lock:
         if key in _settings_cache:
             return _settings_cache[key]
-    doc = _col_settings().document(key).get()
-    val = doc.to_dict().get("value", default) if doc.exists else default
+    
+    # محاولة الجلب من Firestore
+    col = _col_settings()
+    val = default
+    if col:
+        try:
+            doc = col.document(key).get()
+            if doc.exists:
+                val = doc.to_dict().get("value", default)
+        except Exception as e:
+            logger.error(f"Firestore get_setting error: {e}")
+    else:
+        # إذا لم يتوفر Firestore، نستخدم القيم الافتراضية من الكود
+        val = _DEFAULTS.get(key, default)
+
     with _cache_lock:
         _settings_cache[key] = val
     return val
 
 
-def set_setting(key: str, value: str) -> None:
-    _col_settings().document(key).set({"value": value})
-    with _cache_lock:
-        _settings_cache[key] = value
+def set_setting(key: str, value: str) -> bool:
+    col = _col_settings()
+    if col:
+        try:
+            col.document(key).set({"value": value})
+            with _cache_lock:
+                _settings_cache[key] = value
+            return True
+        except Exception as e:
+            logger.error(f"Firestore set_setting error: {e}")
+    return False
 
 
 # ─── الإحصائيات ──────────────────────────────────────────────────────────────
@@ -275,13 +323,16 @@ def get_stats() -> dict:
     global _stats_cache, _stats_last_fetch
     
     now = datetime.datetime.now()
-    # استخدام الكاش إذا كان عمره أقل من 30 دقيقة
     if _stats_cache and _stats_last_fetch:
         if (now - _stats_last_fetch).total_seconds() < 1800:
             return _stats_cache
 
+    col_u = _col_users()
+    if not col_u:
+        return {"total_users": 0, "banned_users": 0, "active_24h": 0, "total_errors": 0, "whitelist_count": 0, "db_status": "OFFLINE"}
+
     try:
-        users_stream = _col_users().stream()
+        users_stream = col_u.stream()
         users_list = [d.to_dict() for d in users_stream]
         
         total   = len(users_list)
@@ -290,10 +341,8 @@ def get_stats() -> dict:
         threshold = (now - datetime.timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
         active_24h = sum(1 for u in users_list if u.get("last_active", "") >= threshold)
         
-        # ملاحظة: Firestore لا يدعم count() بشكل مباشر في كل المكتبات القديمة
-        # استخدام stream().limit(1) فقط للتأكد من الوجود إذا أردنا توفير أكثر
-        total_errors    = sum(1 for _ in _col_errors().limit(1000).stream())
-        whitelist_count = sum(1 for _ in _col_whitelist().limit(1000).stream())
+        total_errors    = sum(1 for _ in _col_errors().limit(1000).stream()) if _col_errors() else 0
+        whitelist_count = sum(1 for _ in _col_whitelist().limit(1000).stream()) if _col_whitelist() else 0
         
         _stats_cache = {
             "total_users":     total,
@@ -301,44 +350,52 @@ def get_stats() -> dict:
             "active_24h":      active_24h,
             "total_errors":    total_errors,
             "whitelist_count": whitelist_count,
-            "cached_at":       now.strftime("%H:%M:%S")
+            "cached_at":       now.strftime("%H:%M:%S"),
+            "db_status":       "ONLINE"
         }
         _stats_last_fetch = now
         return _stats_cache
         
     except Exception as e:
         logger.error(f"Error fetching stats: {e}")
-        return _stats_cache or {
-            "total_users": 0, "banned_users": 0, "active_24h": 0, 
-            "total_errors": 0, "whitelist_count": 0
-        }
+        return _stats_cache or {"total_users": 0, "banned_users": 0, "active_24h": 0, "total_errors": 0, "whitelist_count": 0, "db_status": "ERROR"}
 
 
 # ─── سجل الأخطاء ─────────────────────────────────────────────────────────────
 def log_error(user_id: int | None, platform: str, url: str, error_msg: str) -> None:
+    col = _col_errors()
+    if col is None: return
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    _col_errors().add({
-        "user_id":   user_id,
-        "platform":  platform,
-        "url":       url,
-        "error_msg": error_msg,
-        "timestamp": now,
-    })
+    try:
+        col.add({
+            "user_id":   user_id,
+            "platform":  platform,
+            "url":       url,
+            "error_msg": error_msg,
+            "timestamp": now,
+        })
+    except: pass
 
 
 def get_errors(limit: int = 100) -> list[dict]:
-    docs = (
-        _col_errors()
-        .order_by("timestamp", direction=firestore.Query.DESCENDING)
-        .limit(limit)
-        .stream()
-    )
-    return [d.to_dict() for d in docs]
+    col = _col_errors()
+    if col is None: return []
+    try:
+        docs = (
+            col
+            .order_by("timestamp", direction=firestore.Query.DESCENDING)
+            .limit(limit)
+            .stream()
+        )
+        return [d.to_dict() for d in docs]
+    except: return []
 
 
 def clear_errors() -> None:
-    for doc in _col_errors().stream():
-        doc.reference.delete()
+    col = _col_errors()
+    if col:
+        for doc in col.stream():
+            doc.reference.delete()
 
 
 # ─── إدارة البروكسيات ────────────────────────────────────────────────────────
@@ -364,26 +421,38 @@ def remove_proxy(proxy: str) -> None:
         set_proxies(updated)
 # ─── القائمة البيضاء ──────────────────────────────────────────────────────────
 def get_whitelisted(user_id: int) -> dict | None:
-    doc = _col_whitelist().document(str(user_id)).get()
-    return doc.to_dict() if doc.exists else None
+    col = _col_whitelist()
+    if col:
+        doc = col.document(str(user_id)).get()
+        return doc.to_dict() if doc.exists else None
+    return None
 
 
 def add_to_whitelist(user_id: int, custom_reply: str = "") -> None:
-    _col_whitelist().document(str(user_id)).set({
-        "user_id":      user_id,
-        "custom_reply": custom_reply,
-        "added_at":     datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    })
+    col = _col_whitelist()
+    if col:
+        col.document(str(user_id)).set({
+            "user_id":      user_id,
+            "custom_reply": custom_reply,
+            "added_at":     datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
 
 
 def remove_from_whitelist(user_id: int) -> None:
-    _col_whitelist().document(str(user_id)).delete()
+    col = _col_whitelist()
+    if col: col.document(str(user_id)).delete()
 
 
 def is_whitelisted(user_id: int) -> bool:
-    return _col_whitelist().document(str(user_id)).get().exists
+    col = _col_whitelist()
+    if col:
+        return col.document(str(user_id)).get().exists
+    return False
 
 
 def get_all_whitelist() -> list[dict]:
-    docs = _col_whitelist().stream()
-    return [d.to_dict() for d in docs]
+    col = _col_whitelist()
+    if col:
+        docs = col.stream()
+        return [d.to_dict() for d in docs]
+    return []
