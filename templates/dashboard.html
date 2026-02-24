@@ -530,7 +530,7 @@
         /* خاصية اللوحة الحالية للمستخدمين */
         .user-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
             gap: 16px;
         }
 
@@ -730,24 +730,56 @@
             .sidebar.mobile-open {
                 transform: translateX(0);
                 width: var(--sidebar-width);
+                box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
             }
 
             .sidebar.mobile-open .menu-item span {
                 display: inline;
             }
 
+            .sidebar.mobile-open .sidebar-header h1,
+            .sidebar.mobile-open .logo-text,
+            .sidebar.mobile-open .user-info {
+                display: flex !important;
+            }
+
             .main-container {
-                margin-right: 0;
+                margin-right: 0 !important;
+                padding: 15px;
             }
 
             .page-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 16px;
+                flex-direction: row;
+                /* الحفاظ على الصف مع الزر الجديد */
+                justify-content: space-between;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 20px;
             }
 
             .header-actions {
-                width: 100%;
+                gap: 8px;
+            }
+
+            .status-badge span {
+                display: none;
+                /* إخفاء النص في الجوال الصغير جداً */
+            }
+
+            .mobile-menu-toggle {
+                display: flex !important;
+                align-items: center;
+                justify-content: center;
+                width: 40px;
+                height: 40px;
+                background: var(--bg-card);
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                color: var(--text-main);
+                cursor: pointer;
+            }
+
+            .header-actions {
                 justify-content: space-between;
             }
         }
@@ -836,9 +868,14 @@
         <!-- Main Content -->
         <main class="main-container">
             <header class="page-header">
-                <div class="page-title">
-                    <h2 id="pageTitleDisplay">لوحة التحكم</h2>
-                    <div class="breadcrumb">الرئيسية / الإحصائيات</div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button class="mobile-menu-toggle" style="display: none;" onclick="toggleMobileSidebar()">
+                        <i class="fa-solid fa-bars"></i>
+                    </button>
+                    <div class="page-title">
+                        <h2 id="pageTitleDisplay">لوحة التحكم</h2>
+                        <div class="breadcrumb">الرئيسية / الإحصائيات</div>
+                    </div>
                 </div>
                 <div class="header-actions">
                     <div class="status-badge">
@@ -1442,8 +1479,22 @@
     </main>
     </div>
 
-    <!-- JavaScript الأصلي مع تحسينات طفيفة للتوافق -->
+    <!-- JavaScript الاصلي مع تحسينات طفيفة للتوافق -->
     <script>
+        const sidebar = document.querySelector('.sidebar');
+        function toggleMobileSidebar() {
+            sidebar.classList.toggle('mobile-open');
+        }
+
+        // إغلاق السايد بار عند النقر على رابط في الجوال
+        document.querySelectorAll('.menu-item').forEach(item => {
+            item.addEventListener('click', () => {
+                if (window.innerWidth <= 768) {
+                    sidebar.classList.remove('mobile-open');
+                }
+            });
+        });
+
         function showSection(id, element) {
             // إخفاء الكل
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
