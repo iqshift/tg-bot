@@ -42,21 +42,15 @@ logger = logging.getLogger(__name__)
 
 
 # ─── بناء التطبيق ────────────────────────────────────────────────────────────
-def build_application():
-    token = config.TELEGRAM_TOKEN
+def build_application(force_token=None):
+    token = force_token or config.TELEGRAM_TOKEN
     
-    # محاولة جلب التوكن من Firestore إذا لم يكن موجوداً في البيئة/الملفات
-    if not token:
-        try:
-            from data import database
-            token = database.get_setting("telegram_token", "")
-            if token:
-                logger.info("🔑 Token fetched from Firestore")
-        except Exception as e:
-            logger.error(f"Error fetching token from DB: {e}")
+    # تحذير: لا تحاول جلب التوكن من Firestore هنا!
+    # استدعاء Firestore في الخيط الرئيسي قد يعطل بدء Flask إذا كانت القاعدة غير مفعلة.
+    # سيتم جلب التوكن في خيط البوت المنفصل لاحقاً.
 
     if not token:
-        logger.error("❌ Cannot build Telegram application: TELEGRAM_TOKEN is missing!")
+        logger.error("❌ TELEGRAM_TOKEN is missing! Bot construction delayed.")
         return None
         
     return (
@@ -95,13 +89,29 @@ async def init_bot(app):
     await asyncio.Event().wait()
 
 
-def run_bot_in_thread(app):
+def run_bot_in_thread(initial_app):
     """تشغيل event loop الخاص بالبوت في خيط منفصل."""
     # ✅ init_db هنا بدلاً من قبل Flask - حتى لا يعطّل بدء الخادم
     try:
         database.init_db()
     except Exception as exc:
         logger.error("❌ DB init failed: %s", exc)
+
+    app = initial_app
+    
+    # إذا لم يكن التوكن موجوداً، نحاول جلبه من DB كل دقيقة حتى يتوفر
+    while app is None:
+        token = database.get_setting("telegram_token", "")
+        if token:
+            logger.info("🔑 Token found in Firestore! Building application...")
+            app = build_application(force_token=token)
+            web_server.bot_app = app
+            if app: break
+        
+        logger.warning("🕒 Waiting for TELEGRAM_TOKEN... (Next retry in 60s)")
+        import time
+        time.sleep(60)
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     web_server.bot_loop = loop

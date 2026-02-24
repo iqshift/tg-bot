@@ -60,4 +60,4 @@ LOG_FILE: str = os.path.join(BASE_DIR, "logs", "bot.log")
 
 # ─── Validation ───────────────────────────────────────────────────────────────
 if not TELEGRAM_TOKEN:
-    raise ValueError("❌ التوكن غير موجود - ضع التوكن في secrets/token.txt أو env var TELEGRAM_TOKEN")
+    print("⚠️ [CONFIG] Warning: TELEGRAM_TOKEN is not set. Bot features will be disabled until configured.")
