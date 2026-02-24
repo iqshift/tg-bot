@@ -72,6 +72,7 @@ async def _update_user_db(context: ContextTypes.DEFAULT_TYPE, user) -> None:
 
 # ─── /start ──────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
     # جلب الصورة وتحيين المستخدم بشكل موحد
     await _update_user_db(context, user)
     database.log_message(user.id, "user", "/start")
