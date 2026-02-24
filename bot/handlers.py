@@ -46,23 +46,34 @@ def _get_downloader(url: str) -> tuple[BaseDownloader, str]:
     return _generic, "Generic"
 
 
-async def _get_user_photo(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> str | None:
+async def _get_user_photo(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> tuple[str | None, str | None]:
     try:
         photos = await context.bot.get_user_profile_photos(user_id, limit=1)
         if photos.total_count > 0:
-            f = await context.bot.get_file(photos.photos[0][0].file_id)
-            return f.file_path
+            photo_size = photos.photos[0][0]
+            f = await context.bot.get_file(photo_size.file_id)
+            return f.file_path, photo_size.file_id
     except Exception:
         pass
-    return None
+    return None, None
+
+
+async def _update_user_db(context: ContextTypes.DEFAULT_TYPE, user) -> None:
+    """دالة مساعدة لتحديث بيانات المستخدم شاملة الصورة ومعرف الملف."""
+    photo_url, photo_file_id = await _get_user_photo(context, user.id)
+    database.upsert_user(
+        user_id=user.id,
+        username=user.username,
+        first_name=user.first_name,
+        photo_url=photo_url,
+        photo_file_id=photo_file_id
+    )
 
 
 # ─── /start ──────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    # جلب الصورة بشكل غير متزامن لا يعطّل المعالجة
-    photo_url = await _get_user_photo(context, user.id)
-    database.upsert_user(user.id, user.username, user.first_name, photo_url)
+    # جلب الصورة وتحيين المستخدم بشكل موحد
+    await _update_user_db(context, user)
     database.log_message(user.id, "user", "/start")
 
     db_user = database.get_user(user.id)
@@ -109,7 +120,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     url     = update.message.text.strip()
 
     # تسجيل المستخدم في الخلفية (لا نعطّل معالجة الرابط)
-    asyncio.ensure_future(_update_user(context, user))
+    asyncio.ensure_future(_update_user_db(context, user))
     database.log_message(user.id, "user", url)
 
     # فحص الحظر (من الـ cache عادةً)
@@ -241,9 +252,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # ─── دوال مساعدة ─────────────────────────────────────────────────────────────
 async def _update_user(context: ContextTypes.DEFAULT_TYPE, user) -> None:
-    """تحديث بيانات المستخدم في الخلفية."""
-    photo_url = await _get_user_photo(context, user.id)
-    database.upsert_user(user.id, user.username, user.first_name, photo_url)
+    """تحديث بيانات المستخدم في الخلفية (نسخة قديمة - يرجى استخدام _update_user_db)."""
+    await _update_user_db(context, user)
 
 
 async def _check_subscriptions(update, context, user_id: int, chat_id: int) -> bool:

@@ -151,7 +151,7 @@ def get_user(user_id: int) -> dict | None:
     return data
 
 
-def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "") -> None:
+def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "", photo_file_id: str = "") -> None:
     col = _col_users()
     if col is None: return
 
@@ -166,7 +166,8 @@ def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "
             needs_update = (
                 data.get("username") != username or 
                 data.get("first_name") != first_name or 
-                data.get("photo_url") != photo_url
+                data.get("photo_url") != photo_url or
+                data.get("photo_file_id") != photo_file_id
             )
             
             # إذا لم يتغير الاسم، نحدث تاريخ آخر ظهور فقط إذا مر أكثر من ساعة واحدة (بدلاً من 12) لزيادة الدقة
@@ -184,21 +185,23 @@ def upsert_user(user_id: int, username: str, first_name: str, photo_url: str = "
 
             if needs_update:
                 doc_ref.update({
-                    "username":    username,
-                    "first_name":  first_name,
-                    "last_active": now_str,
-                    "photo_url":   photo_url,
+                    "username":      username,
+                    "first_name":    first_name,
+                    "last_active":   now_str,
+                    "photo_url":     photo_url,
+                    "photo_file_id": photo_file_id,
                 })
         else:
             # مستخدم جديد (يظهر فوراً في لوحة التحكم)
             doc_ref.set({
-                "user_id":     user_id,
-                "username":    username,
-                "first_name":  first_name,
-                "joined_date": now_str,
-                "last_active": now_str,
-                "is_banned":   False,
-                "photo_url":   photo_url,
+                "user_id":       user_id,
+                "username":      username,
+                "first_name":    first_name,
+                "joined_date":   now_str,
+                "last_active":   now_str,
+                "is_banned":     False,
+                "photo_url":     photo_url,
+                "photo_file_id": photo_file_id,
             })
             logger.info(f"🆕 New user registered: {first_name} ({user_id})")
     except Exception as e:

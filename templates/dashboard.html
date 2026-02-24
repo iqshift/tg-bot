@@ -929,7 +929,10 @@
                             <div class="user-card-wrapper" style="position: relative;">
                                 <a href="/chat/{{ user.user_id }}" target="_blank" class="user-card glass">
                                     <div class="user-avatar">
-                                        {% if user.photo_url %}
+                                        {% if user.photo_file_id %}
+                                        <img src="/api/user_photo/{{ user.photo_file_id }}" alt="{{ user.first_name }}"
+                                            onerror="this.src='{{ user.photo_url }}';">
+                                        {% elif user.photo_url %}
                                         <img src="{{ user.photo_url }}" alt="{{ user.first_name }}"
                                             onerror="this.parentNode.innerText='{{ user.first_name[0] }}';">
                                         {% else %}
@@ -1346,11 +1349,55 @@
                                     الأمر 30-40 ثانية.</p>
                             </div>
                         </div>
+
+                        <!-- Firestore Free Tier Info -->
+                        <div class="card glass"
+                            style="margin-top: 24px; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.1);">
+                            <div class="card-header">
+                                <h4 class="card-title" style="color: #f59e0b;"><i class="fa-solid fa-cloud"
+                                        style="margin-left: 8px;"></i>حدود الخطة المجانية (Google Firestore Free Tier)
+                                </h4>
+                            </div>
+                            <div class="stats-grid"
+                                style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); padding: 15px; gap: 12px;">
+                                <div class="stat-item"
+                                    style="text-align: center; padding: 10px; background: rgba(15, 23, 42, 0.3); border-radius: 8px;">
+                                    <span style="display: block; font-size: 18px; font-weight: 800; color: #fff;">{{
+                                        cloud_limits.reads_daily }}</span>
+                                    <span style="font-size: 11px; color: var(--text-muted);">قراءة مستند/يومياً</span>
+                                </div>
+                                <div class="stat-item"
+                                    style="text-align: center; padding: 10px; background: rgba(15, 23, 42, 0.3); border-radius: 8px;">
+                                    <span style="display: block; font-size: 18px; font-weight: 800; color: #fff;">{{
+                                        cloud_limits.writes_daily }}</span>
+                                    <span style="font-size: 11px; color: var(--text-muted);">كتابة مستند/يومياً</span>
+                                </div>
+                                <div class="stat-item"
+                                    style="text-align: center; padding: 10px; background: rgba(15, 23, 42, 0.3); border-radius: 8px;">
+                                    <span style="display: block; font-size: 18px; font-weight: 800; color: #fff;">{{
+                                        cloud_limits.deletes_daily }}</span>
+                                    <span style="font-size: 11px; color: var(--text-muted);">حذف مستند/يومياً</span>
+                                </div>
+                                <div class="stat-item"
+                                    style="text-align: center; padding: 10px; background: rgba(15, 23, 42, 0.3); border-radius: 8px;">
+                                    <span style="display: block; font-size: 18px; font-weight: 800; color: #fff;">{{
+                                        cloud_limits.storage_free }}</span>
+                                    <span style="font-size: 11px; color: var(--text-muted);">مساحة تخزين مجانية</span>
+                                </div>
+                            </div>
+                            <div
+                                style="padding: 0 20px 20px; font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+                                <i class="fa-solid fa-circle-info" style="margin-left: 5px; color: #f59e0b;"></i>
+                                تم تصميم البوت ليعمل بحكمة ضمن هذه الحدود. تحديثات "آخر ظهور" تتم كل ساعة لتوفير
+                                العمليات وضمان بقاء الخدمة مجانية لك بالكامل.
+                            </div>
+                        </div>
                     </div>
                 </div>
-
             </div>
-        </main>
+
+    </div>
+    </main>
     </div>
 
     <!-- JavaScript الأصلي مع تحسينات طفيفة للتوافق -->

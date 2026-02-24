@@ -54,6 +54,26 @@ def telegram_webhook():
 
 
 # ─── المسارات ────────────────────────────────────────────────────────────────
+@app.route("/api/user_photo/<file_id>")
+def proxy_user_photo(file_id):
+    """بروكسي لجلب صورة المستخدم من تليجرام وحل مشكلة انتهاء الروابط."""
+    try:
+        if not bot_app or not bot_app.bot:
+            return "Bot not active", 503
+        
+        # جلب رابط الملف المتجدد باستخدام المعرف
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        f = loop.run_until_complete(bot_app.bot.get_file(file_id))
+        
+        # إعادة توجيه المتصفح للرابط الفعلي المتجدد
+        return redirect(f.file_path)
+    except Exception as e:
+        logger.error(f"Error proxying photo {file_id}: {e}")
+        return "Not found", 404
+
+
 @app.route("/")
 def dashboard():
     stats = database.get_stats()
@@ -72,6 +92,16 @@ def dashboard():
 
     channels_list = [c.strip() for c in (settings["required_channels"] or "").split(",") if c.strip()]
     whitelist = database.get_all_whitelist()
+    
+    # تفاصيل الخطة المجانية لـ Firestore (Firebase Free Tier)
+    cloud_limits = {
+        "reads_daily": "50,000",
+        "writes_daily": "20,000",
+        "deletes_daily": "20,000",
+        "storage_free": "1 GiB",
+        "network_free": "10 GiB/month"
+    }
+
     return render_template(
         "dashboard.html",
         stats=stats,
@@ -80,6 +110,7 @@ def dashboard():
         settings=settings,
         channels_list=channels_list,
         whitelist=whitelist,
+        cloud_limits=cloud_limits
     )
 
 
