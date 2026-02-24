@@ -241,6 +241,31 @@ def ban_user(user_id: int):
     return redirect(url_for("dashboard"))
 
 
+@app.route("/api/save_settings", methods=["POST"])
+def api_save_settings():
+    """حفظ الإعدادات العامة للبوت."""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"success": False, "error": "No data"}), 400
+
+        # قائمة المفاتيح المسموح بتحديثها
+        allowed_keys = [
+            "welcome_msg", "help_msg", "msg_analyzing", "msg_routing",
+            "msg_complete", "msg_error", "msg_banned", "msg_caption",
+            "required_channels", "share_msg", "share_btn_text", "msg_force_sub",
+            "telegram_token", "webhook_url"
+        ]
+
+        for key, val in data.items():
+            if key in allowed_keys:
+                database.set_setting(key, str(val))
+
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Error saving settings: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route("/unban_user/<int:user_id>", methods=["POST"])
 def unban_user(user_id: int):
     database.ban_user(user_id, False)

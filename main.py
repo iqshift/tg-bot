@@ -33,9 +33,25 @@ logger = logging.getLogger(__name__)
 
 # ─── بناء التطبيق ────────────────────────────────────────────────────────────
 def build_application():
+    token = config.TELEGRAM_TOKEN
+    
+    # محاولة جلب التوكن من Firestore إذا لم يكن موجوداً في البيئة/الملفات
+    if not token:
+        try:
+            from data import database
+            token = database.get_setting("telegram_token", "")
+            if token:
+                logger.info("🔑 Token fetched from Firestore")
+        except Exception as e:
+            logger.error(f"Error fetching token from DB: {e}")
+
+    if not token:
+        logger.error("❌ Cannot build Telegram application: TELEGRAM_TOKEN is missing!")
+        return None
+        
     return (
         ApplicationBuilder()
-        .token(config.TELEGRAM_TOKEN)
+        .token(token)
         .concurrent_updates(True)
         .connection_pool_size(8)
         .connect_timeout(10)
@@ -54,8 +70,12 @@ async def init_bot(app):
     await app.initialize()
     await app.start()
 
-    if config.WEBHOOK_URL:
-        webhook_url = config.WEBHOOK_URL.rstrip("/") + "/webhook"
+    webhook_url_config = config.WEBHOOK_URL
+    if not webhook_url_config:
+        webhook_url_config = database.get_setting("webhook_url", "")
+
+    if webhook_url_config:
+        webhook_url = webhook_url_config.rstrip("/") + "/webhook"
         await app.bot.set_webhook(url=webhook_url, allowed_updates=["message"])
         logger.info("✅ Webhook registered: %s", webhook_url)
     else:

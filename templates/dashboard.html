@@ -978,6 +978,41 @@
                     </div>
                 </div>
 
+                <!-- Connection Settings Section -->
+                <div id="connection-settings" class="section">
+                    <div class="card glass">
+                        <div class="card-header">
+                            <h3 class="card-title">إعدادات الربط والتوكن 🔑</h3>
+                        </div>
+                        <div style="padding: 20px;">
+                            <form onsubmit="saveConnectionSettings(event)">
+                                <div class="stats-grid" style="grid-template-columns: 1fr 1fr; gap: 20px;">
+                                    <div class="form-group">
+                                        <label>توكن البوت (Telegram Token)</label>
+                                        <input type="password" id="field_telegram_token"
+                                            value="{{ settings.telegram_token }}" placeholder="123456789:ABCDEF..."
+                                            style="width: 100%;">
+                                        <small style="color: var(--text-muted); font-size: 11px;">سيتم استخدامه في حال
+                                            عدم توفر التوكن في ملفات السيرفر.</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>رابط الويب-هوك (Webhook URL)</label>
+                                        <input type="url" id="field_webhook_url" value="{{ settings.webhook_url }}"
+                                            placeholder="https://your-app.run.app" style="width: 100%;">
+                                        <small style="color: var(--text-muted); font-size: 11px;">الرابط الأساسي للسيرفر
+                                            (مثل رابط Cloud Run).</small>
+                                    </div>
+                                </div>
+                                <div style="display: flex; justify-content: flex-end; margin-top: 15px;">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fa-solid fa-link"></i> حفظ إعدادات الربط
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Settings Section -->
                 <div id="settings" class="section">
                     <div class="card glass">
@@ -1460,6 +1495,41 @@
             box.innerHTML = `<div class="toast ${success ? 'success' : 'error'}" style="position:static; width:100%; margin-bottom:0;">
                 <i class="fa-solid fa-info-circle"></i> ${msg}
             </div>`;
+        }
+
+        async function saveConnectionSettings(event) {
+            event.preventDefault();
+            const token = document.getElementById('field_telegram_token').value.trim();
+            const webhook = document.getElementById('field_webhook_url').value.trim();
+
+            const btn = event.target.querySelector('button');
+            const oldHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ...';
+
+            try {
+                const response = await fetch('/api/save_settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        telegram_token: token,
+                        webhook_url: webhook
+                    })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    alert('✅ تم حفظ إعدادات الربط بنجاح! ملاحظة: إذا قمت بتغيير التوكن، فقد تحتاج لإعادة تشغيل السيرفر لتفعيله.');
+                } else {
+                    alert('❌ فشل الحفظ: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('❌ حدث خطأ تقني في الاتصال.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = oldHtml;
+            }
         }
 
         async function fetchServerSpecs() {
