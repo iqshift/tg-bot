@@ -73,15 +73,7 @@ class TikTokDownloader(BaseDownloader):
                     file_paths.append(path)
             
             # استخراج الوصف
-            desc = ""
-            try:
-                # محاولة استخراج الوصف من الهيكل المكتشف
-                default_scope = data.get("__DEFAULT_SCOPE__", {})
-                webapp_content = default_scope.get("webapp.video-detail", {})
-                item_info = webapp_content.get("itemInfo", {}).get("itemStruct", {})
-                desc = item_info.get("desc", "")
-            except:
-                pass
+            desc = self._extract_description_enhanced(data)
 
             return {
                 "results": file_paths,
@@ -105,6 +97,15 @@ class TikTokDownloader(BaseDownloader):
                 res = self._find_key_recursive(item, target_key)
                 if res: return res
         return None
+
+    def _extract_description_enhanced(self, data):
+        """استخراج الوصف بطريقة أكثر مرونة."""
+        # محاولة البحث عن desc في أماكن محتملة
+        for key in ["desc", "caption", "title"]:
+            found = self._find_key_recursive(data, key)
+            if found and isinstance(found, str):
+                return found
+        return ""
 
     def _download_file(self, url: str) -> str:
         """تحميل ملف وحفظه في مجلد التحميلات."""

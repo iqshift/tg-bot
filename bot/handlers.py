@@ -250,7 +250,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
             except Exception as e:
                 logger.error(f"Download Error: {e}", exc_info=True)
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=msg_error)
+                # تسجيل الخطأ في قاعدة البيانات ليظهر في لوحة التحكم
+                database.log_error(user_id=user_id, platform=platform, url=url, error_msg=str(e))
+                
+                final_error_msg = msg_error.replace("{error}", str(e))
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_error_msg)
     except Exception as e:
         logger.error(f"FATAL error in handle_message: {e}", exc_info=True)
         print(f"DEBUG HANDLE_MSG ERROR: {e}")

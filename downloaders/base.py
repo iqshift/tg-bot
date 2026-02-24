@@ -59,8 +59,13 @@ class BaseDownloader:
                     "description": description
                 }
         except Exception as exc:
-            logger.error("خطأ في التحميل: %s", exc)
-            raise
+            err_msg = str(exc)
+            if "HTTP Error 403" in err_msg:
+                err_msg = "فشل الوصول (403): قد يكون الموقع حظر السيرفر مؤقتاً."
+            elif "HTTP Error 429" in err_msg:
+                err_msg = "طلب مكثف (429): تم تقييد السيرفر، يرجى الانتظار قليلاً."
+            logger.error("خطأ في التحميل: %s", err_msg)
+            raise Exception(err_msg)
 
     def download_video(self, url: str) -> dict:
         return self._download(url)
