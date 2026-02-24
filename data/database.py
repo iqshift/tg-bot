@@ -45,23 +45,24 @@ def _col_usage():     return _get_col("usage_stats")
 
 # ─── عداد الاستهلاك (Quota Tracking) ──────────────────────────────────────────
 def _track_usage(reads: int = 0, writes: int = 0, deletes: int = 0):
-    """تتبع استهلاك العمليات في Firestore لليوم الحالي."""
-    col = _col_usage()
-    if not col: return
-    
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
-    doc_ref = col.document(today)
-    
+    """تتبع استهلاك العمليات في Firestore لليوم الحالي بشكل محصن."""
     try:
-        # استخدام Increment لضمان السرعة والدقة بدون قراءة مسبقة
-        doc_ref.set({
-            "reads":   firestore.Increment(reads),
-            "writes":  firestore.Increment(writes),
-            "deletes": firestore.Increment(deletes),
-            "last_update": firestore.SERVER_TIMESTAMP
-        }, merge=True)
+        col = _col_usage()
+        if not col: return
+        
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        doc_ref = col.document(today)
+        
+        data = {}
+        if reads > 0:   data["reads"]   = firestore.Increment(reads)
+        if writes > 0:  data["writes"]  = firestore.Increment(writes)
+        if deletes > 0: data["deletes"] = firestore.Increment(deletes)
+        
+        if data:
+            data["last_update"] = firestore.SERVER_TIMESTAMP
+            doc_ref.set(data, merge=True)
     except Exception as e:
-        logger.warning(f"Error tracking usage: {e}")
+        logger.debug(f"Usage tracking skipped: {e}")
 
 def get_usage_today() -> dict:
     """جلب إحصائيات الاستهلاك لليوم الحالي."""
@@ -158,24 +159,23 @@ _DEFAULTS = {
 
 # ─── تهيئة قاعدة البيانات ────────────────────────────────────────────────────
 def init_db() -> None:
-    """
-    تهيئة Firestore - يضيف الإعدادات الافتراضية إذا لم تكن موجودة.
-    """
+    """تهيئة Firestore - يضيف الإعدادات الافتراضية بشكل محسّن وقليل الاستهلاك."""
     col = _col_settings()
-    if col is None:
-        logger.warning("⚠️ Skipping init_db: Firestore is NOT active.")
-        return
+    if col is None: return
 
     try:
-        reads = 0
+        # جلب الإعدادات الموجودة دفعة واحدة لتقليل القراءات (عملية واحدة بدلاً من 20)
+        existing_docs = {d.id for d in col.stream()}
+        _track_usage(reads=1) # قراءة واحدة للـ stream
+        
         writes = 0
         for key, val in _DEFAULTS.items():
-            doc_ref = col.document(key)
-            reads += 1
-            if not doc_ref.get().exists:
-                doc_ref.set({"value": val})
+            if key not in existing_docs:
+                col.document(key).set({"value": val})
                 writes += 1
-        _track_usage(reads=reads, writes=writes)
+        
+        if writes > 0:
+            _track_usage(writes=writes)
         logger.info("✅ Database initialized (Firestore)")
     except Exception as e:
         logger.error(f"Error during init_db: {e}")

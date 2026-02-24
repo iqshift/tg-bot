@@ -72,34 +72,39 @@ async def _update_user_db(context: ContextTypes.DEFAULT_TYPE, user) -> None:
 
 # ─── /start ──────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    # جلب الصورة وتحيين المستخدم بشكل موحد
-    await _update_user_db(context, user)
-    database.log_message(user.id, "user", "/start")
+    try:
+        user = update.effective_user
+        # جلب الصورة وتحيين المستخدم بشكل موحد
+        await _update_user_db(context, user)
+        database.log_message(user.id, "user", "/start")
 
-    db_user = database.get_user(user.id)
-    if db_user and db_user["is_banned"]:
-        return
+        db_user = database.get_user(user.id)
+        if db_user and db_user["is_banned"]:
+            return
 
-    msg = database.get_setting("welcome_msg", "أهلاً! أرسل رابط الفيديو.")
-    
-    # جلب إعدادات المشاركة
-    share_msg  = database.get_setting("share_msg", "هذا هو البوت الاحترافي للتحميل! @ir4qibot")
-    share_btn  = database.get_setting("share_btn_text", "مشاركة مع الأصدقاء 🔗")
-    
-    # تجهيز رابط المشاركة
-    import urllib.parse
-    bot_username = context.bot.username
-    encoded_share = urllib.parse.quote_plus(share_msg)
-    share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}&text={encoded_share}"
-    
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(text=share_btn, url=share_url)]
-    ])
+        msg = database.get_setting("welcome_msg", "أهلاً! أرسل رابط الفيديو.")
+        
+        # جلب إعدادات المشاركة
+        share_msg  = database.get_setting("share_msg", "هذا هو البوت الاحترافي للتحميل! @ir4qibot")
+        share_btn  = database.get_setting("share_btn_text", "مشاركة مع الأصدقاء 🔗")
+        
+        # تجهيز رابط المشاركة
+        import urllib.parse
+        # استخدام معرف البوت البديل إذا لم يتوفر الاسم
+        bot_username = context.bot.username or (await context.bot.get_me()).username
+        encoded_share = urllib.parse.quote_plus(share_msg)
+        share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}&text={encoded_share}"
+        
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(text=share_btn, url=share_url)]
+        ])
 
-    await update.message.reply_text(msg, reply_markup=keyboard)
-    database.log_message(user.id, "bot", msg)
+        await update.message.reply_text(msg, reply_markup=keyboard)
+        database.log_message(user.id, "bot", msg)
+    except Exception as e:
+        logger.error(f"Error in start command: {e}")
+        print(f"DEBUG START ERROR: {e}")
 
 
 # ─── /help ───────────────────────────────────────────────────────────────────
@@ -116,38 +121,43 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 # ─── معالج الرسائل الرئيسي ───────────────────────────────────────────────────
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user    = update.effective_user
-    chat_id = update.effective_chat.id
-    url     = update.message.text.strip()
+    try:
+        user    = update.effective_user
+        chat_id = update.effective_chat.id
+        if not update.message or not update.message.text: return
+        url     = update.message.text.strip()
 
-    # تسجيل المستخدم في الخلفية (لا نعطّل معالجة الرابط)
-    asyncio.ensure_future(_update_user_db(context, user))
-    database.log_message(user.id, "user", url)
+        # تسجيل المستخدم في الخلفية (لا نعطّل معالجة الرابط)
+        asyncio.ensure_future(_update_user_db(context, user))
+        database.log_message(user.id, "user", url)
 
-    # فحص الحظر (من الـ cache عادةً)
-    db_user = database.get_user(user.id)
-    if db_user and db_user["is_banned"]:
-        msg = database.get_setting("msg_banned", "⛔ أنت محظور.")
-        await update.message.reply_text(msg)
-        return
-
-    # فحص القائمة البيضاء (Exemption)
-    whitelist_entry = database.get_whitelisted(user.id)
-    is_whitelisted  = whitelist_entry is not None
-
-    # فحص اشتراك القنوات (يتخطى إذا كان في القائمة البيضاء)
-    if not is_whitelisted:
-        if not await _check_subscriptions(update, context, user.id, chat_id):
+        # فحص الحظر (من الـ cache عادةً)
+        db_user = database.get_user(user.id)
+        if db_user and db_user["is_banned"]:
+            msg = database.get_setting("msg_banned", "⛔ أنت محظور.")
+            await update.message.reply_text(msg)
             return
 
-    # التحقق من أن النص هو رابط فعلي قبل البدء
-    if not url.startswith(("http://", "https://")):
-        msg = "⚠️ يرجى إرسال رابط فيديو صحيح من Instagram أو Facebook أو TikTok.\nمثال: https://instagram.com/p/..."
-        await update.message.reply_text(msg)
-        return
+        # فحص القائمة البيضاء (Exemption)
+        whitelist_entry = database.get_whitelisted(user.id)
+        is_whitelisted  = whitelist_entry is not None
 
-    # ----- التحميل -----
-    downloader, platform = _get_downloader(url)
+        # فحص اشتراك القنوات (يتخطى إذا كان في القائمة البيضاء)
+        if not is_whitelisted:
+            if not await _check_subscriptions(update, context, user.id, chat_id):
+                return
+
+        # التحقق من أن النص هو رابط فعلي قبل البدء
+        if not url.startswith(("http://", "https://")):
+            msg = "⚠️ يرجى إرسال رابط فيديو صحيح من Instagram أو Facebook أو TikTok.\nمثال: https://instagram.com/p/..."
+            await update.message.reply_text(msg)
+            return
+
+        # ----- التحميل -----
+        downloader, platform = _get_downloader(url)
+    except Exception as e:
+        logger.error(f"Error in handle_message: {e}")
+        print(f"DEBUG HANDLE_MSG ERROR: {e}")
 
     # تخصيص الرد لمستخدمي القائمة البيضاء
     custom_reply = whitelist_entry.get("custom_reply") if is_whitelisted else None
