@@ -100,10 +100,16 @@ class InstagramDownloader(BaseDownloader):
             # Fallback
             logger.info("🔄 Falling back to yt-dlp...")
             try:
-                res = super().download_video(url)
-                if os.path.exists(res["file_path"]) and not res["file_path"].lower().endswith(".na"):
-                    return {"results": res["file_path"], "description": res["description"]}
-            except: pass
+                opts = {}
+                if os.path.exists(config.INSTAGRAM_COOKIES):
+                    opts["cookiefile"] = config.INSTAGRAM_COOKIES
+                    logger.info("✅ Using Instagram cookies for fallback")
+                
+                res = self._download(url, extra_opts=opts)
+                if os.path.exists(res["results"]) and not res["results"].lower().endswith(".na"):
+                    return {"results": res["results"], "description": res["description"]}
+            except Exception as fallback_err:
+                logger.error("❌ Fallback also failed: %s", fallback_err)
             
             raise ValueError(f"⚠️ خطأ في تحميل المنشور: {str(e)}")
 

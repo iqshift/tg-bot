@@ -18,17 +18,14 @@ logger = logging.getLogger(__name__)
 _BASE_OPTS = {
     "format":           "best[ext=mp4]/best",
     "noplaylist":       True,
-    "quiet":            True,          # لا خروج للـ console (أسرع)
-    "noprogress":       True,          # لا progress bar (يوفر I/O)
+    "quiet":            True,
     "no_warnings":      True,
     "restrictfilenames": True,
-    "socket_timeout":   15,            # timeout أسرع بدلاً من الانتظار
-    "retries":          2,             # محاولتان فقط
-    "fragment_retries": 2,
-    "skip_unavailable_fragments": True,
-    "writethumbnail":   False,         # لا صورة مصغرة
-    "writesubtitles":   False,         # لا ترجمات
-    "writeinfojson":    False,         # لا ملف معلومات
+    "socket_timeout":   15,
+    "retries":          3,
+    "noprogress":       True,
+    "user_agent":       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "check_formats":    False,
 }
 
 

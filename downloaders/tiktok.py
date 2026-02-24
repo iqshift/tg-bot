@@ -30,7 +30,10 @@ class TikTokDownloader(BaseDownloader):
 
         try:
             # المحاولة الأولى باستخدام yt-dlp
-            return self._download(url, extra_opts=opts)
+            res = self._download(url, extra_opts=opts)
+            if res and os.path.exists(res.get("results", "")) and not res.get("results", "").lower().endswith(".na"):
+                return res
+            raise ValueError("yt-dlp returned no valid results")
         except Exception as exc:
             logger.warning("⚠️ فشل yt-dlp في تحميل الرابط، محاولة الحل البديل للصور: %s", exc)
             return self._fallback_photo_download(url)
@@ -67,10 +70,16 @@ class TikTokDownloader(BaseDownloader):
             
             file_paths = []
             for img in images:
-                img_url = img.get("displayLink") or img.get("imageURL", {}).get("urlList", [None])[0]
+                # محاولة استخراج الرابط بالتفضيل: urlList (Signed) ثم displayLink
+                url_list = img.get("imageURL", {}).get("urlList", [])
+                img_url = url_list[0] if url_list else img.get("displayLink")
+                
                 if img_url:
-                    path = self._download_file(img_url)
-                    file_paths.append(path)
+                    try:
+                        path = self._download_file(img_url)
+                        file_paths.append(path)
+                    except Exception as e:
+                        logger.warning("⚠️ فشل تحميل صورة واحدة: %s", e)
             
             # استخراج الوصف
             desc = self._extract_description_enhanced(data)
@@ -108,11 +117,16 @@ class TikTokDownloader(BaseDownloader):
         return ""
 
     def _download_file(self, url: str) -> str:
-        """تحميل ملف وحفظه في مجلد التحميلات."""
+        """تحميل ملف وحفظه في مجلد التحميلات مع استخدام رؤوس طلبات صحيحة."""
         filename = f"{uuid.uuid4()}.jpg"
         path = os.path.join(self.download_path, filename)
         
-        response = requests.get(url, stream=True, timeout=10)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "Referer": "https://www.tiktok.com/",
+        }
+        
+        response = requests.get(url, headers=headers, stream=True, timeout=10)
         response.raise_for_status()
         
         with open(path, "wb") as f:
