@@ -44,13 +44,26 @@ def run_flask() -> None:
 # ─── Telegram Webhook ────────────────────────────────────────────────────────
 @app.route("/webhook", methods=["POST"])
 def telegram_webhook():
-    """استقبال التحديثات من Telegram ومعالجتها."""
-    if bot_app is None or bot_loop is None:
-        logger.warning("⚠️ Bot not ready yet")
-        return "Bot not ready", 503
-    update = Update.de_json(request.get_json(force=True), bot_app.bot)
-    asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
-    return "OK", 200
+    """استقبال التحديثات من Telegram ومعالجتها مع نظام مراقبة."""
+    try:
+        data = request.get_json(force=True)
+        if not data:
+            return "Empty", 400
+            
+        update_id = data.get("update_id", "???")
+        logger.info(f"📥 Incoming Hook: Update ID {update_id}")
+
+        if bot_app is None or bot_loop is None:
+            logger.warning(f"⚠️ Bot not ready for Update {update_id}")
+            return "Bot not ready", 503
+            
+        update = Update.de_json(data, bot_app.bot)
+        # إرسال التحديث للمعالجة في خيط البوت
+        asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"❌ Webhook Error: {e}")
+        return "Error", 500
 
 
 # ─── المسارات ────────────────────────────────────────────────────────────────

@@ -74,6 +74,8 @@ async def _update_user_db(context: ContextTypes.DEFAULT_TYPE, user) -> None:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         user = update.effective_user
+        if not user: return
+        
         # جلب الصورة وتحيين المستخدم بشكل موحد
         await _update_user_db(context, user)
         database.log_message(user.id, "user", "/start")
@@ -90,8 +92,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         
         # تجهيز رابط المشاركة
         import urllib.parse
-        # استخدام معرف البوت البديل إذا لم يتوفر الاسم
-        bot_username = context.bot.username or (await context.bot.get_me()).username
+        try:
+            bot_meta = await context.bot.get_me()
+            bot_username = bot_meta.username
+        except:
+            bot_username = context.bot.username or "bot"
+
         encoded_share = urllib.parse.quote_plus(share_msg)
         share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}&text={encoded_share}"
         
@@ -103,20 +109,43 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(msg, reply_markup=keyboard)
         database.log_message(user.id, "bot", msg)
     except Exception as e:
-        logger.error(f"Error in start command: {e}")
+        logger.error(f"FATAL error in start: {e}", exc_info=True)
         print(f"DEBUG START ERROR: {e}")
 
 
 # ─── /help ───────────────────────────────────────────────────────────────────
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    database.log_message(user.id, "user", "/help")
-    db_user = database.get_user(user.id)
-    if db_user and db_user["is_banned"]:
-        return
-    msg = database.get_setting("help_msg", "أرسل رابط Instagram أو Facebook أو TikTok.")
-    await update.message.reply_text(msg)
-    database.log_message(user.id, "bot", msg)
+    try:
+        user = update.effective_user
+        if not user: return
+        database.log_message(user.id, "user", "/help")
+        db_user = database.get_user(user.id)
+        if db_user and db_user["is_banned"]:
+            return
+        msg = database.get_setting("help_msg", "أرسل رابط Instagram أو Facebook أو TikTok.")
+        await update.message.reply_text(msg)
+        database.log_message(user.id, "bot", msg)
+    except Exception as e:
+        logger.error(f"Error in help: {e}")
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """أمر لفحص حالة البوت والاتصال."""
+    try:
+        user = update.effective_user
+        if not user: return
+        
+        db_status = "✅ متصل" if database._get_db() else "❌ غير متصل (يعمل بالقيم الافتراضية)"
+        
+        msg = (
+            "🤖 **حالة البوت الحالية:**\n\n"
+            f"👤 المستخدم: `{user.id}`\n"
+            f"🗄️ قاعدة البيانات: {db_status}\n"
+            f"🌐 نوع الاتصال: Webhook\n"
+            "🛡️ نظام التتبع: نشط"
+        )
+        await update.message.reply_text(msg, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error in status: {e}")
 
 
 # ─── معالج الرسائل الرئيسي ───────────────────────────────────────────────────
@@ -128,7 +157,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         url     = update.message.text.strip()
 
         # تسجيل المستخدم في الخلفية (لا نعطّل معالجة الرابط)
-        asyncio.ensure_future(_update_user_db(context, user))
+        asyncio.create_task(_update_user_db(context, user))
         database.log_message(user.id, "user", url)
 
         # فحص الحظر (من الـ cache عادةً)
@@ -155,108 +184,77 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         # ----- التحميل -----
         downloader, platform = _get_downloader(url)
+
+        # تخصيص الرد لمستخدمي القائمة البيضاء
+        custom_reply = whitelist_entry.get("custom_reply") if is_whitelisted else None
+        
+        msg_analyzing = custom_reply if custom_reply else database.get_setting("msg_analyzing", "جاري التحليل... 🔍")
+        msg_routing   = database.get_setting("msg_routing",   "توجيه إلى {platform}... 🔄").replace("{platform}", platform)
+        msg_complete  = database.get_setting("msg_complete",  "تم التحميل! جاري الرفع... 📤")
+        msg_error     = database.get_setting("msg_error",     "فشل التحميل ({platform}) ❌").replace("{platform}", platform)
+        msg_caption   = database.get_setting("msg_caption",   "المصدر: {platform}").replace("{platform}", platform)
+
+        status_msg = await update.message.reply_text(msg_analyzing)
+
+        # تحرير الـ event loop أثناء التحميل
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=msg_routing)
+
+        async with _download_semaphore:   # حد للتحميلات المتزامنة
+            try:
+                loop      = asyncio.get_running_loop()
+                stats_dict = await loop.run_in_executor(
+                    EXECUTOR, downloader.download_video, url
+                )
+                
+                # استخراج النتائج والوصف
+                results     = stats_dict.get("results")
+                description = stats_dict.get("description", "")
+
+                await context.bot.edit_message_text(
+                    chat_id=chat_id, message_id=status_msg.message_id, text=msg_complete
+                )
+
+                # دمج الوصف المستخرج مع الكابشن الافتراضي
+                # سنقوم بوضع الوصف في البداية ثم المصدر
+                final_caption = f"{description}\n\n{msg_caption}" if description else msg_caption
+                # تليجرام لديه حد أقصى للحروف في الكابشن (1024)
+                if len(final_caption) > 1024:
+                    final_caption = final_caption[:1020] + "..."
+
+                if not results:
+                     await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=msg_error)
+                     return
+
+                if isinstance(results, list):
+                    # إرسال ألبوم (Media Group) - تليجرام يسمح بـ 10 عناصر بحد أقصى لكل مجموعة
+                    from telegram import InputMediaPhoto, InputMediaVideo
+                    media = []
+                    for item in results[:10]:
+                        if item.endswith((".jpg", ".jpeg", ".png", ".webp")):
+                            media.append(InputMediaPhoto(media=item, caption=final_caption if not media else ""))
+                        else:
+                            media.append(InputMediaVideo(media=item, caption=final_caption if not media else ""))
+                    
+                    if media:
+                        await context.bot.send_media_group(chat_id=chat_id, media=media, reply_to_message_id=update.message.message_id)
+                        await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                else:
+                    # إرسال فيديو واحد
+                    await context.bot.send_video(
+                        chat_id=chat_id,
+                        video=results,
+                        caption=final_caption,
+                        reply_to_message_id=update.message.message_id
+                    )
+                    await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+
+            except Exception as e:
+                logger.error(f"Download Error: {e}", exc_info=True)
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=msg_error)
     except Exception as e:
-        logger.error(f"Error in handle_message: {e}")
+        logger.error(f"FATAL error in handle_message: {e}", exc_info=True)
         print(f"DEBUG HANDLE_MSG ERROR: {e}")
 
-    # تخصيص الرد لمستخدمي القائمة البيضاء
-    custom_reply = whitelist_entry.get("custom_reply") if is_whitelisted else None
-    
-    msg_analyzing = custom_reply if custom_reply else database.get_setting("msg_analyzing", "جاري التحليل... 🔍")
-    msg_routing   = database.get_setting("msg_routing",   "توجيه إلى {platform}... 🔄").replace("{platform}", platform)
-    msg_complete  = database.get_setting("msg_complete",  "تم التحميل! جاري الرفع... 📤")
-    msg_error     = database.get_setting("msg_error",     "فشل التحميل ({platform}) ❌").replace("{platform}", platform)
-    msg_caption   = database.get_setting("msg_caption",   "المصدر: {platform}").replace("{platform}", platform)
-
-    status_msg = await update.message.reply_text(msg_analyzing)
-
-    # تحرير الـ event loop أثناء التحميل
-    await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=msg_routing)
-
-    async with _download_semaphore:   # حد للتحميلات المتزامنة
-        try:
-            loop      = asyncio.get_running_loop()
-            stats_dict = await loop.run_in_executor(
-                EXECUTOR, downloader.download_video, url
-            )
-            
-            # استخراج النتائج والوصف
-            results     = stats_dict.get("results")
-            description = stats_dict.get("description", "")
-
-            await context.bot.edit_message_text(
-                chat_id=chat_id, message_id=status_msg.message_id, text=msg_complete
-            )
-
-            # دمج الوصف المستخرج مع الكابشن الافتراضي
-            # سنقوم بوضع الوصف في البداية ثم المصدر
-            final_caption = f"{description}\n\n{msg_caption}" if description else msg_caption
-            # تليجرام لديه حد أقصى للحروف في الكابشن (1024)
-            if len(final_caption) > 1024:
-                final_caption = final_caption[:1020] + "..."
-
-            if isinstance(results, list):
-                # إرسال ألبوم (Media Group) - تليجرام يسمح بـ 10 عناصر بحد أقصى لكل مجموعة
-                from telegram import InputMediaPhoto, InputMediaVideo
-                
-                # تقسيم القائمة إلى مجموعات (Chunks) كل منها 10 عناصر
-                chunks = [results[i:i + 10] for i in range(0, len(results), 10)]
-                
-                for chunk_idx, chunk in enumerate(chunks):
-                    media_group = []
-                    for i, path in enumerate(chunk):
-                        ext = os.path.splitext(path)[1].lower()
-                        # الكابشن يظهر في أول عنصر من أول مجموعة فقط
-                        caption = final_caption if (chunk_idx == 0 and i == 0) else None
-                        
-                        file_handle = open(path, "rb")
-                        if ext in (".jpg", ".jpeg", ".png", ".webp"):
-                            media_group.append(InputMediaPhoto(media=file_handle, caption=caption))
-                        else:
-                            media_group.append(InputMediaVideo(media=file_handle, caption=caption))
-                    
-                    try:
-                        await context.bot.send_media_group(chat_id=chat_id, media=media_group)
-                    except Exception as e:
-                        logger.error("❌ فشل إرسال Media Group (chunk %d): %s", chunk_idx, e)
-                
-                # تنظيف القائمة بعد الإرسال
-                for path in results:
-                    downloader.cleanup(path)
-            else:
-                # إرسال ملف واحد
-                file_path = results
-                ext = os.path.splitext(file_path)[1].lower()
-                with open(file_path, "rb") as media_file:
-                    if ext in (".jpg", ".jpeg", ".png", ".webp"):
-                        await context.bot.send_photo(
-                            chat_id=chat_id, photo=media_file, caption=final_caption
-                        )
-                    elif ext == ".gif":
-                        await context.bot.send_animation(
-                            chat_id=chat_id, animation=media_file, caption=final_caption
-                        )
-                    else:
-                        await context.bot.send_video(
-                            chat_id=chat_id, video=media_file, caption=final_caption
-                        )
-                
-                downloader.cleanup(file_path)
-
-            await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-
-        except Exception as exc:
-            logger.error("فشل التحميل [%s]: %s", platform, exc)
-            # ✅ تسجيل الخطأ التفصيلي في لوحة التحكم فقط
-            database.log_error(user.id, platform, url, str(exc))
-            # ✅ رسالة عامة للمستخدم - لا تُظهر تفاصيل تقنية
-            friendly_msg = "⚠️ حدث خطأ أثناء التحميل.\nسيتم معالجته قريباً، حاول مرة أخرى لاحقاً."
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id, message_id=status_msg.message_id, text=friendly_msg
-                )
-            except Exception:
-                pass
 
 
 

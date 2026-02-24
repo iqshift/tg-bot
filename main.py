@@ -18,7 +18,7 @@ print(f"🚀 [INIT] PORT environment: {os.environ.get('PORT', '8080 (default)')}
 import config
 from data import database
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
-from bot.handlers import start, help_command, handle_message
+from bot.handlers import start, help_command, handle_message, status_command
 from web import server as web_server
 
 # ─── تهيئة السجلات ────────────────────────────────────────────────────────────
@@ -66,8 +66,9 @@ async def init_bot(app):
     """تهيئة البوت وتسجيل الـ Webhook مع Telegram."""
     if not app: return
     
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help",  help_command))
+    app.add_handler(CommandHandler("start",  start))
+    app.add_handler(CommandHandler("help",   help_command))
+    app.add_handler(CommandHandler("status", status_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     await app.initialize()
@@ -86,6 +87,14 @@ async def init_bot(app):
             base_url = base_url[:-8].rstrip("/")
         
         webhook_url = base_url + "/webhook"
+        
+        # تنظيف الويب هوك القديم وحذف أي رسائل متراكمة قد تسبب تعارضاً (Conflict)
+        try:
+            await app.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("🧹 Old webhook deleted and pending updates dropped.")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not delete old webhook: {e}")
+
         await app.bot.set_webhook(url=webhook_url, allowed_updates=["message"])
         logger.info("✅ Webhook registered: %s", webhook_url)
     else:

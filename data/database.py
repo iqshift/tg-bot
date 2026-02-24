@@ -16,14 +16,20 @@ _settings_cache: dict = {}
 
 
 def _get_db() -> firestore.Client:
-    """إنشاء اتصال Firestore مرة واحدة وإعادة استخدامه، مع معالجة فشل الاتصال."""
+    """إنشاء اتصال Firestore مرة واحدة وإعادة استخدامه، مع دعم ملف الاعتمادات."""
     global _db
     if _db is None:
         with _db_lock:
             if _db is None:
                 try:
-                    _db = firestore.Client()
-                    logger.info("🔥 Firestore client created successfully")
+                    # محاولة استخدام ملف الاعتمادات إذا وجد في secrets/
+                    cred_path = os.path.join(config.SECRETS_DIR, "service_account.json")
+                    if os.path.exists(cred_path):
+                        _db = firestore.Client.from_service_account_json(cred_path)
+                        logger.info("🔥 Firestore client created using service_account.json")
+                    else:
+                        _db = firestore.Client()
+                        logger.info("🔥 Firestore client created successfully (ADC)")
                 except Exception as e:
                     logger.error(f"❌ Firestore Initialization Failed: {e}")
                     logger.warning("⚠️ Application will continue without persistent database storage.")
