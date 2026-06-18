@@ -23,12 +23,7 @@ except ImportError as e:
     server_utils = None
 
 # ─── تهيئة Flask ─────────────────────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-app = Flask(
-    __name__,
-    template_folder=os.path.join(BASE_DIR, "templates"),
-    static_folder=os.path.join(BASE_DIR, "static"),
-)
+app = Flask(__name__)
 app.secret_key = "ar_worm_ai_v3"
 
 # ─── متغيرات مشتركة مع البوت ─────────────────────────────────────────────────

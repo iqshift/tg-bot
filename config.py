@@ -61,7 +61,7 @@ INSTAGRAM_COOKIES: str = os.path.join(COOKIES_DIR, "instagram_cookies.txt")
 TIKTOK_COOKIES: str    = os.path.join(COOKIES_DIR, "tiktok_cookies.txt")
 
 # ─── Proxy Rotation (للتحايل على rate-limit Instagram) ───────────────────────
-PROXY_LIST_FILE: str = os.path.join(BASE_DIR, "working_socks5.txt")
+PROXY_LIST_FILE: str = os.path.join(BASE_DIR, "data", "working_socks5.txt")
 
 
 # ─── Logging ──────────────────────────────────────────────────────────────────

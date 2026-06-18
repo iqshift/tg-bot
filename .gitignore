@@ -10,6 +10,6 @@ users.db
 external_tools/
 .env
 # بروكسيات (تتغير - لا تُرفع)
-working_socks5.txt
-working_socks4.txt
-working_http.txt
+data/working_socks5.txt
+data/working_socks4.txt
+data/working_http.txt

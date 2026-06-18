@@ -8,3 +8,6 @@ logs/
 users.db
 .env
 external_tools/
+data/working_socks5.txt
+data/working_socks4.txt
+data/working_http.txt
