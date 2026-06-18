@@ -6,7 +6,7 @@ import os
 
 # ─── المسارات الأساسية ────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-SECRETS_DIR = os.path.join(BASE_DIR, "secrets")
+SECRETS_DIR = os.path.join(BASE_DIR, "..", "secrets")
 
 
 def _read_secret(filename: str, env_key: str = "", default: str = "") -> str:
@@ -53,7 +53,7 @@ WEBHOOK_PORT: int   = int(os.environ.get("PORT", 8080))
 DB_PATH: str = os.path.join(BASE_DIR, "data", "users.db")
 
 # ─── Downloads ────────────────────────────────────────────────────────────────
-DOWNLOADS_DIR: str = os.path.join(BASE_DIR, "downloads")
+DOWNLOADS_DIR: str = os.path.join(BASE_DIR, "..", "downloads")
 
 # ─── Cookies (في data/cookies/ حتى يصلها Docker) ─────────────────────────────
 COOKIES_DIR: str       = os.path.join(BASE_DIR, "data", "cookies")
@@ -65,7 +65,7 @@ PROXY_LIST_FILE: str = os.path.join(BASE_DIR, "data", "working_socks5.txt")
 
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
-LOG_FILE: str = os.path.join(BASE_DIR, "logs", "bot.log")
+LOG_FILE: str = os.path.join(BASE_DIR, "..", "logs", "bot.log")
 
 # ─── Validation ───────────────────────────────────────────────────────────────
 if not TELEGRAM_TOKEN:

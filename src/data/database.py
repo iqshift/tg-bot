@@ -288,7 +288,7 @@ def get_all_users() -> list[dict]:
 
 
 # ─── الرسائل (JSON - محلي / مؤقت) ──────────────────────────────────────────
-_messages_file = "data/messages.json"
+_messages_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "messages.json")
 _messages_lock = threading.Lock()
 
 def log_message(user_id: int, message_type: str, message_text: str) -> None:

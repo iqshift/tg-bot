@@ -6,10 +6,10 @@ __pycache__/
 downloads/
 logs/
 *.log
-users.db
+src/data/users.db
 external_tools/
 .env
 # بروكسيات (تتغير - لا تُرفع)
-data/working_socks5.txt
-data/working_socks4.txt
-data/working_http.txt
+src/data/working_socks5.txt
+src/data/working_socks4.txt
+src/data/working_http.txt

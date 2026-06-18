@@ -21,10 +21,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # إنشاء المجلدات الضرورية
-RUN mkdir -p downloads logs data/cookies
+RUN mkdir -p downloads logs src/data/cookies
 
 # المنفذ (Cloud Run يستخدم 8080 افتراضياً)
 EXPOSE 8080
 
 # تشغيل البوت
-CMD ["python", "main.py"]
+CMD ["python", "src/main.py"]
