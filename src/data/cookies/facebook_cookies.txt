@@ -1,0 +1,15 @@
+# Netscape HTTP Cookie File
+# This file was generated from JSON cookies
+
+.facebook.com	TRUE	/	TRUE	1797357394	ps_l	1
+.facebook.com	TRUE	/	TRUE	1797035775	datr	_z4NaUFcb5-o_XsBTNt8114D
+.facebook.com	TRUE	/	TRUE	1789527522	fr	1qrCQNEx9ysyGXKkL.AWclFuLTNLvdZ0OKVXZLxoRO-Cpa4muf-wBd92yHhf6hM5UpsV4.BqM1td..AAA.0.0.BqM17i.AWejZhVN5EpzkvEbURYF8ob33h4
+.facebook.com	TRUE	/	TRUE	1813286620	xs	40%3AqJcKQNV-dLVAIg%3A2%3A1769035340%3A-1%3A-1%3A%3AAcxq75WdLK_AwOi47O0iZ_epRMkO-roc-Vjwzn2rCsY
+.facebook.com	TRUE	/	TRUE	1801262246	fbl_st	101221360%3BT%3A29495437
+.facebook.com	TRUE	/	TRUE	1813286620	c_user	100072647430373
+.facebook.com	TRUE	/	TRUE	0	presence	C%7B%22t3%22%3A%5B%5D%2C%22utc3%22%3A1781751525577%2C%22v%22%3A1%7D
+.facebook.com	TRUE	/	TRUE	1782356325	dpr	1.25
+.facebook.com	TRUE	/	TRUE	1804286244	pas	100072647430373%3A4b70s9uCfQ
+.facebook.com	TRUE	/	TRUE	1797357394	ps_n	1
+.facebook.com	TRUE	/	TRUE	1803595342	sb	_z4NaQvP9M6358ZeWuIMy4Nr
+.facebook.com	TRUE	/	TRUE	1782356325	wd	1528x732
