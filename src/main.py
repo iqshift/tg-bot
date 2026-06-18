@@ -17,8 +17,8 @@ print(f"🚀 [INIT] PORT environment: {os.environ.get('PORT', '8080 (default)')}
 
 import config
 from data import database
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
-from bot.handlers import start, help_command, handle_message, status_command
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackQueryHandler
+from bot.handlers import start, help_command, handle_message, status_command, handle_callback
 from web import server as web_server
 
 # ─── تهيئة السجلات ────────────────────────────────────────────────────────────
@@ -70,6 +70,7 @@ async def init_bot(app):
     app.add_handler(CommandHandler("help",   help_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(handle_callback))
 
     await app.initialize()
     await app.start()

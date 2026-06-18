@@ -43,6 +43,17 @@ class InstagramDownloader(BaseDownloader):
             dirname_pattern=os.path.join(self.abs_download_path, "{target}"),
             filename_pattern="{shortcode}"
         )
+        
+        # تحميل ملف الكوكيز الخاص بإنستغرام لـ Instaloader إذا وجد
+        import http.cookiejar
+        if os.path.exists(config.INSTAGRAM_COOKIES):
+            try:
+                cj = http.cookiejar.MozillaCookieJar(config.INSTAGRAM_COOKIES)
+                cj.load(ignore_discard=True, ignore_expires=True)
+                self.L.context._session.cookies.update(cj)
+                logger.info("✅ Instaloader session loaded with cookies")
+            except Exception as e:
+                logger.warning("⚠️ Could not load Instagram cookies into Instaloader: %s", e)
 
     def download_video(self, url: str) -> dict:
         """تحميل منشور (فيديو، صورة، أو ألبوم)."""
@@ -119,6 +130,50 @@ class InstagramDownloader(BaseDownloader):
             if p in ("p", "reels", "reel") and i + 1 < len(parts):
                 return parts[i+1].split("?")[0]
         return None
+
+    def get_active_stories(self, username: str) -> list[dict]:
+        """جلب قائمة القصص النشطة لمستخدم معين."""
+        try:
+            logger.info("📥 [Instaloader] Fetching profile stories for: %s", username)
+            # التأكد من صحة الجلسة عبر محاولة جلب الملف الشخصي
+            profile = instaloader.Profile.from_username(self.L.context, username)
+            
+            stories_items = []
+            for story in self.L.get_stories(userids=[profile.userid]):
+                for item in story.get_items():
+                    stories_items.append({
+                        "media_id": item.mediaid,
+                        "is_video": item.is_video,
+                        "url": item.video_url if item.is_video else item.url,
+                        "date": item.date_utc.strftime("%Y-%m-%d %H:%M:%S")
+                    })
+            # ترتيب من الأقدم للأحدث
+            stories_items.sort(key=lambda x: x["date"])
+            return stories_items
+        except Exception as e:
+            logger.error("❌ [Instaloader] Error fetching stories: %s", e)
+            raise Exception(f"فشل جلب القصص للحساب {username}. قد يكون الحساب خاصاً أو ملف الكوكيز منتهي الصلاحية.")
+
+    def download_story_url(self, url: str, is_video: bool) -> str:
+        """تحميل قصة فردية مباشرة من رابط الـ CDN الخاص بإنستغرام."""
+        import uuid
+        ext = ".mp4" if is_video else ".jpg"
+        filename = f"story_{uuid.uuid4()}{ext}"
+        filepath = os.path.join(self.abs_download_path, filename)
+        
+        try:
+            response = self.L.context._session.get(url, stream=True, timeout=15)
+            response.raise_for_status()
+            with open(filepath, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            return filepath
+        except Exception as e:
+            logger.error("❌ Failed to download story URL: %s", e)
+            if os.path.exists(filepath):
+                try: os.remove(filepath)
+                except: pass
+            raise Exception(f"فشل تحميل ملف القصة: {e}")
 
     def cleanup(self, path_or_list):
         if not path_or_list: return

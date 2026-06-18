@@ -176,11 +176,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if not await _check_subscriptions(update, context, user.id, chat_id):
                 return
 
-        # التحقق من أن النص هو رابط فعلي قبل البدء
+        # التحقق من أن النص هو رابط فعلي، وإلا التحقق من كونه اسم مستخدم إنستغرام
         if not url.startswith(("http://", "https://")):
-            msg = "⚠️ يرجى إرسال رابط فيديو صحيح من Instagram أو Facebook أو TikTok.\nمثال: https://instagram.com/p/..."
-            await update.message.reply_text(msg)
-            return
+            import re
+            username_match = re.match(r"^@?([a-zA-Z0-9._]{1,30})$", url)
+            if username_match:
+                username = username_match.group(1)
+                await handle_instagram_stories(update, context, username)
+                return
+            else:
+                msg = "⚠️ يرجى إرسال رابط فيديو صحيح من Instagram أو Facebook أو TikTok، أو إرسال اسم مستخدم إنستغرام يبدأ بـ @ لتحميل القصص."
+                await update.message.reply_text(msg)
+                return
 
         # ----- التحميل -----
         downloader, platform = _get_downloader(url)
@@ -323,3 +330,159 @@ async def _is_member(context, chat_id: str, user_id: int) -> bool:
         return member.status not in ("left", "kicked")
     except Exception:
         return False
+
+
+async def handle_instagram_stories(update: Update, context: ContextTypes.DEFAULT_TYPE, username: str) -> None:
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    
+    # فحص الحظر والاشتراك
+    db_user = database.get_user(user.id)
+    if db_user and db_user["is_banned"]:
+        return
+
+    # فحص اشتراك القنوات
+    whitelist_entry = database.get_whitelisted(user.id)
+    is_whitelisted = whitelist_entry is not None
+    if not is_whitelisted:
+        if not await _check_subscriptions(update, context, user.id, chat_id):
+            return
+
+    status_msg = await update.message.reply_text(f"🔍 جاري البحث عن قصص نشطة للحساب @{username}...")
+
+    try:
+        # تشغيل جلب القصص في خيط منفصل لمنع تجميد الخادم
+        loop = asyncio.get_running_loop()
+        stories = await loop.run_in_executor(
+            EXECUTOR, _insta.get_active_stories, username
+        )
+
+        if not stories:
+            await status_msg.edit_text(f"📭 لا توجد أي قصص (Stories) نشطة للحساب @{username} حالياً، أو أن الحساب خاص.")
+            return
+
+        # حفظ قائمة القصص في ذاكرة الـ context.user_data
+        context.user_data[f"stories_{username}"] = stories
+
+        # إنشاء الأزرار
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = []
+        
+        for i, s in enumerate(stories[:15]):
+            type_str = "📹 فيديو" if s["is_video"] else "🖼️ صورة"
+            time_str = s["date"].split(" ")[1][:5]  # HH:MM
+            btn_text = f"القصة {i+1} ({type_str}) - {time_str}"
+            keyboard.append([InlineKeyboardButton(text=btn_text, callback_data=f"st:{username}:{i}")])
+
+        # زر تحميل الكل
+        keyboard.append([InlineKeyboardButton(text="📥 تحميل كل القصص", callback_data=f"stall:{username}")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await status_msg.edit_text(
+            f"📸 تم العثور على {len(stories)} قصة نشطة لحساب @{username}.\nاختر القصة التي تريد تحميلها أو قم تحميل الكل:",
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        logger.error("Error in handle_instagram_stories: %s", e)
+        await status_msg.edit_text(f"❌ حدث خطأ أثناء جلب القصص: {str(e)}")
+
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    chat_id = query.message.chat_id
+    user_id = query.from_user.id
+
+    # فحص الحظر
+    db_user = database.get_user(user_id)
+    if db_user and db_user["is_banned"]:
+        return
+
+    # التحقق من نوع الحدث
+    if data.startswith("st:"):
+        # تحميل قصة فردية
+        _, username, index_str = data.split(":")
+        index = int(index_str)
+        
+        stories = context.user_data.get(f"stories_{username}")
+        if not stories or index >= len(stories):
+            await query.edit_message_text("❌ انتهت صلاحية هذه القائمة. يرجى إرسال اسم المستخدم مرة أخرى.")
+            return
+            
+        story = stories[index]
+        status_msg = await query.message.reply_text("📥 جاري تحميل القصة...")
+        
+        try:
+            loop = asyncio.get_running_loop()
+            file_path = await loop.run_in_executor(
+                EXECUTOR, _insta.download_story_url, story["url"], story["is_video"]
+            )
+            
+            await status_msg.edit_text("📤 جاري الرفع إلى تليجرام...")
+            
+            caption = f"👤 الحساب: @{username}\n📅 التاريخ: {story['date']}"
+            if story["is_video"]:
+                with open(file_path, "rb") as f:
+                    await context.bot.send_video(chat_id=chat_id, video=f, caption=caption, reply_to_message_id=query.message.message_id)
+            else:
+                with open(file_path, "rb") as f:
+                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=caption, reply_to_message_id=query.message.message_id)
+            
+            await status_msg.delete()
+            # تنظيف
+            _insta.cleanup(file_path)
+        except Exception as e:
+            logger.error("Error downloading story: %s", e)
+            await status_msg.edit_text(f"❌ فشل تحميل القصة: {str(e)}")
+
+    elif data.startswith("stall:"):
+        # تحميل جميع القصص
+        _, username = data.split(":")
+        stories = context.user_data.get(f"stories_{username}")
+        if not stories:
+            await query.edit_message_text("❌ انتهت صلاحية هذه القائمة. يرجى إرسال اسم المستخدم مرة أخرى.")
+            return
+
+        status_msg = await query.message.reply_text(f"📥 جاري تحميل {len(stories)} قصة... قد يستغرق هذا بعض الوقت.")
+        
+        try:
+            downloaded_files = []
+            loop = asyncio.get_running_loop()
+            
+            tasks = []
+            for s in stories:
+                tasks.append(
+                    loop.run_in_executor(
+                        EXECUTOR, _insta.download_story_url, s["url"], s["is_video"]
+                    )
+                )
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            await status_msg.edit_text("📤 جاري الرفع إلى تليجرام...")
+            
+            for s, res in zip(stories, results):
+                if isinstance(res, Exception):
+                    logger.error("Error downloading one of the stories: %s", res)
+                    continue
+                
+                downloaded_files.append(res)
+                caption = f"👤 الحساب: @{username}\n📅 التاريخ: {s['date']}"
+                
+                if s["is_video"]:
+                    with open(res, "rb") as f:
+                        await context.bot.send_video(chat_id=chat_id, video=f, caption=caption)
+                else:
+                    with open(res, "rb") as f:
+                        await context.bot.send_photo(chat_id=chat_id, photo=f, caption=caption)
+            
+            await status_msg.delete()
+            # تنظيف
+            for f in downloaded_files:
+                _insta.cleanup(f)
+                
+        except Exception as e:
+            logger.error("Error downloading all stories: %s", e)
+            await status_msg.edit_text(f"❌ فشل تحميل جميع القصص: {str(e)}")
