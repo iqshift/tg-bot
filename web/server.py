@@ -362,6 +362,7 @@ def api_activate_webhook():
     except Exception as e:
         logger.error(f"Error activating webhook: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+@app.route("/unban_user/<int:user_id>", methods=["POST"])
 def unban_user(user_id: int):
     database.ban_user(user_id, False)
     flash(f"تم رفع الحظر عن {user_id}", "success")

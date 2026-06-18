@@ -28,6 +28,10 @@ def _get_db() -> firestore.Client:
                         _db = firestore.Client.from_service_account_json(cred_path)
                         logger.info("🔥 Firestore client created using service_account.json")
                     else:
+                        # التحقق مما إذا كنا في بيئة التطوير المحلية بدون ملف اعتمادات لمنع التعليق (Hanging)
+                        if not os.environ.get("K_SERVICE") and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+                            logger.warning("⚠️ Running locally without credentials. Skipping Firestore to prevent hanging.")
+                            return None
                         _db = firestore.Client()
                         logger.info("🔥 Firestore client created successfully (ADC)")
                 except Exception as e:
