@@ -74,6 +74,16 @@ async def init_bot(app):
     await app.initialize()
     await app.start()
 
+    # إذا كنا في البيئة المحلية (وليس Cloud Run)، نستخدم Polling بدلاً من Webhook للاختبار
+    if not os.environ.get("K_SERVICE"):
+        try:
+            await app.bot.delete_webhook(drop_pending_updates=True)
+            await app.updater.start_polling(allowed_updates=["message"])
+            logger.info("⚡ Local Polling started successfully! The bot will respond to messages locally.")
+        except Exception as e:
+            logger.error(f"❌ Failed to start local polling: {e}")
+        return
+
     # إعادة قراءة رابط الويب هوك من الملف
     # إعادة قراءة رابط الويب هوك من الملف
     webhook_url_config = config._read_secret(config.WEBHOOK_URL_FILE, env_key="WEBHOOK_URL")
