@@ -194,8 +194,10 @@ def init_db() -> None:
 
 # ─── المستخدمون ──────────────────────────────────────────────────────────────
 def get_user(user_id: int) -> dict | None:
+    col = _col_users()
+    if col is None: return None
     _track_usage(reads=1)
-    doc = _col_users().document(str(user_id)).get()
+    doc = col.document(str(user_id)).get()
     if not doc.exists:
         return None
     data = doc.to_dict()
