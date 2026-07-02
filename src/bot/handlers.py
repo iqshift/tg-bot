@@ -278,8 +278,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except Exception as e:
                 logger.error(f"Download Error: {e}", exc_info=True)
                 database.log_error(user_id=user.id, platform=platform, url=url, error_msg=str(e))
-                final_error_msg = msg_error.replace("{error}", str(e))
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_error_msg)
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=msg_error)
             finally:
                 # تنظيف الملفات بعد الإرسال أو الفشل
                 if results:
@@ -385,7 +384,9 @@ async def handle_instagram_stories(update: Update, context: ContextTypes.DEFAULT
         )
     except Exception as e:
         logger.error("Error in handle_instagram_stories: %s", e)
-        await status_msg.edit_text(f"❌ حدث خطأ أثناء جلب القصص: {str(e)}")
+        database.log_error(user_id=user.id, platform="Instagram Stories", url=f"@{username}", error_msg=str(e))
+        msg_stories_err = database.get_setting("msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌")
+        await status_msg.edit_text(msg_stories_err)
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -436,7 +437,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             _insta.cleanup(file_path)
         except Exception as e:
             logger.error("Error downloading story: %s", e)
-            await status_msg.edit_text(f"❌ فشل تحميل القصة: {str(e)}")
+            database.log_error(user_id=user_id, platform="Instagram Stories", url=f"@{username} (single)", error_msg=str(e))
+            msg_stories_err = database.get_setting("msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌")
+            await status_msg.edit_text(msg_stories_err)
 
     elif data.startswith("stall:"):
         # تحميل جميع القصص
@@ -486,4 +489,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 
         except Exception as e:
             logger.error("Error downloading all stories: %s", e)
-            await status_msg.edit_text(f"❌ فشل تحميل جميع القصص: {str(e)}")
+            database.log_error(user_id=user_id, platform="Instagram Stories", url=f"@{username} (all)", error_msg=str(e))
+            msg_stories_err = database.get_setting("msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌")
+            await status_msg.edit_text(msg_stories_err)
