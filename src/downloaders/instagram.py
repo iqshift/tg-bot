@@ -206,6 +206,7 @@ class InstagramDownloader(BaseDownloader):
         from instaloader.exceptions import ProfileNotExistsException, PrivateProfileNotFollowedException
 
         last_error = None
+        profile_not_found_count = 0  # عدد مرات خطأ "البروفايل غير موجود" (قد يكون بسبب rate limit)
         for i, proxy in enumerate(attempts):
             try:
                 if proxy:
@@ -230,17 +231,25 @@ class InstagramDownloader(BaseDownloader):
                 # ترتيب من الأقدم للأحدث
                 stories_items.sort(key=lambda x: x["date"])
                 return stories_items
-            except ProfileNotExistsException:
-                logger.warning("⚠️ Profile %s does not exist", username)
-                raise ValueError("هذا الحساب غير موجود على إنستغرام.")
             except PrivateProfileNotFollowedException:
+                # حساب خاص - خطأ نهائي لا يستفيد من إعادة المحاولة
                 logger.warning("⚠️ Profile %s is private", username)
                 raise ValueError("هذا الحساب خاص (Private)، لا يمكن للبوت جلب قصصه.")
+            except ProfileNotExistsException:
+                # قد يكون بسبب rate limit وليس لأن الحساب غير موجود - نستمر بالمحاولة
+                profile_not_found_count += 1
+                logger.warning("⚠️ [Instaloader] Attempt %d: Profile %s not found (may be rate limit)", i + 1, username)
+                last_error = Exception(f"Profile {username} not found")
             except Exception as e:
                 last_error = e
                 logger.warning("⚠️ [Instaloader] Stories fetch attempt %d failed for user %s: %s", i + 1, username, e)
 
+        # إذا كانت جميع المحاولات فشلت بـ "Profile not found" → الحساب لا يملك قصصاً أو خاص
+        if profile_not_found_count == len(attempts):
+            raise ValueError("لا توجد قصص نشطة لهذا الحساب حالياً، أو أن الحساب خاص.")
+
         raise Exception(f"فشل جلب القصص للحساب {username} بعد تجربة البروكسيات والاتصال المباشر. قد يكون الحساب خاصاً أو ملف الكوكيز منتهي الصلاحية. التفاصيل: {last_error}")
+
 
     def download_story_url(self, url: str, is_video: bool) -> str:
         """تحميل قصة فردية مباشرة من رابط الـ CDN الخاص بإنستغرام."""
