@@ -203,6 +203,8 @@ class InstagramDownloader(BaseDownloader):
                     attempts.append(p_str)
         attempts.append(None) # محاولة بالاتصال المباشر
 
+        from instaloader.exceptions import ProfileNotExistsException, PrivateProfileNotFollowedException
+
         last_error = None
         for i, proxy in enumerate(attempts):
             try:
@@ -228,6 +230,12 @@ class InstagramDownloader(BaseDownloader):
                 # ترتيب من الأقدم للأحدث
                 stories_items.sort(key=lambda x: x["date"])
                 return stories_items
+            except ProfileNotExistsException:
+                logger.warning("⚠️ Profile %s does not exist", username)
+                raise ValueError("هذا الحساب غير موجود على إنستغرام.")
+            except PrivateProfileNotFollowedException:
+                logger.warning("⚠️ Profile %s is private", username)
+                raise ValueError("هذا الحساب خاص (Private)، لا يمكن للبوت جلب قصصه.")
             except Exception as e:
                 last_error = e
                 logger.warning("⚠️ [Instaloader] Stories fetch attempt %d failed for user %s: %s", i + 1, username, e)

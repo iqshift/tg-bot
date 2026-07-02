@@ -382,6 +382,9 @@ async def handle_instagram_stories(update: Update, context: ContextTypes.DEFAULT
             f"📸 تم العثور على {len(stories)} قصة نشطة لحساب @{username}.\nاختر القصة التي تريد تحميلها أو قم تحميل الكل:",
             reply_markup=reply_markup
         )
+    except ValueError as ve:
+        # إظهار أخطاء إدخال المستخدم (مثل الحساب خاص أو غير موجود) بشكل مباشر لتنبيهه
+        await status_msg.edit_text(f"⚠️ {str(ve)}")
     except Exception as e:
         logger.error("Error in handle_instagram_stories: %s", e)
         database.log_error(user_id=user.id, platform="Instagram Stories", url=f"@{username}", error_msg=str(e))
