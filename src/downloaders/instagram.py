@@ -8,6 +8,7 @@ import logging
 import shutil
 import instaloader
 import requests as _requests
+import random
 
 import config
 from data import database
@@ -55,6 +56,21 @@ class InstagramDownloader(BaseDownloader):
             except Exception as e:
                 logger.warning("⚠️ Could not load Instagram cookies into Instaloader: %s", e)
 
+    def _set_random_proxy(self):
+        try:
+            proxies = database.get_proxies()
+            if proxies:
+                proxy = random.choice(proxies)
+                if not proxy.startswith(("http://", "https://", "socks5://", "socks4://")):
+                    proxy = f"http://{proxy}"
+                self.L.context._session.proxies = {"http": proxy, "https": proxy}
+                logger.info("📡 [Instaloader] Set random proxy: %s", proxy)
+            else:
+                self.L.context._session.proxies = {}
+        except Exception as pe:
+            logger.warning("⚠️ Failed to set proxy for Instaloader: %s", pe)
+            self.L.context._session.proxies = {}
+
     def download_video(self, url: str) -> dict:
         """تحميل منشور (فيديو، صورة، أو ألبوم)."""
         shortcode = self._get_shortcode(url)
@@ -77,6 +93,7 @@ class InstagramDownloader(BaseDownloader):
             logger.warning("⚠️ [yt-dlp] Failed to download: %s. Trying Instaloader...", yt_err)
 
         # إذا فشل yt-dlp، نلجأ إلى Instaloader كخيار احتياطي (مثلاً للألبومات المتعددة)
+        self._set_random_proxy()
         # اسم المجلد النسبي
         target_name = f"temp_{shortcode}_{int(time.time())}"
         # المسار الفعلي المتوقع
@@ -135,6 +152,7 @@ class InstagramDownloader(BaseDownloader):
     def get_active_stories(self, username: str) -> list[dict]:
         """جلب قائمة القصص النشطة لمستخدم معين."""
         try:
+            self._set_random_proxy()
             logger.info("📥 [Instaloader] Fetching profile stories for: %s", username)
             # التأكد من صحة الجلسة عبر محاولة جلب الملف الشخصي
             profile = instaloader.Profile.from_username(self.L.context, username)
@@ -163,6 +181,7 @@ class InstagramDownloader(BaseDownloader):
         filepath = os.path.join(self.abs_download_path, filename)
         
         try:
+            self._set_random_proxy()
             response = self.L.context._session.get(url, stream=True, timeout=15)
             response.raise_for_status()
             with open(filepath, "wb") as f:
