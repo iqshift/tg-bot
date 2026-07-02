@@ -230,8 +230,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     final_caption = final_caption[:1020] + "..."
 
                 if not results:
-                     await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=msg_error)
-                     return
+                      error_msg_replaced = msg_error.replace("{error}", "No downloadable media found")
+                      await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg_replaced)
+                      return
 
                 if isinstance(results, list):
                     # إرسال ألبوم (Media Group)
@@ -278,7 +279,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except Exception as e:
                 logger.error(f"Download Error: {e}", exc_info=True)
                 database.log_error(user_id=user.id, platform=platform, url=url, error_msg=str(e))
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=msg_error)
+                error_msg_replaced = msg_error.replace("{error}", str(e))
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg_replaced)
             finally:
                 # تنظيف الملفات بعد الإرسال أو الفشل
                 if results:
