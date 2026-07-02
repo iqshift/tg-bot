@@ -93,54 +93,79 @@ class InstagramDownloader(BaseDownloader):
             logger.warning("⚠️ [yt-dlp] Failed to download: %s. Trying Instaloader...", yt_err)
 
         # إذا فشل yt-dlp، نلجأ إلى Instaloader كخيار احتياطي (مثلاً للألبومات المتعددة)
-        self._set_random_proxy()
-        # اسم المجلد النسبي
-        target_name = f"temp_{shortcode}_{int(time.time())}"
-        # المسار الفعلي المتوقع
-        target_dir = os.path.join(self.abs_download_path, target_name)
-
+        proxies = []
         try:
-            logger.info("📥 [Instaloader] Fetching post: %s", shortcode)
-            post = instaloader.Post.from_shortcode(self.L.context, shortcode)
-            description = post.caption or ""
+            proxies = database.get_proxies()
+        except:
+            pass
+
+        attempts = []
+        if proxies:
+            sampled = random.sample(proxies, min(len(proxies), 3))
+            for p in sampled:
+                p_str = p.strip()
+                if p_str:
+                    if not p_str.startswith(("http://", "https://", "socks5://", "socks4://")):
+                        p_str = f"http://{p_str}"
+                    attempts.append(p_str)
+        attempts.append(None) # الاتصال المباشر
+
+        last_error = None
+        for i, proxy in enumerate(attempts):
+            target_name = f"temp_{shortcode}_{int(time.time())}_{i}"
+            target_dir = os.path.join(self.abs_download_path, target_name)
             
-            # التحميل الفعلي
-            logger.info("📥 [Instaloader] Downloading to folder: %s", target_name)
-            self.L.download_post(post, target=target_name)
+            try:
+                if proxy:
+                    self.L.context._session.proxies = {"http": proxy, "https": proxy}
+                    logger.info("📡 [Instaloader] Post fetch attempt %d: Using proxy: %s", i + 1, proxy)
+                else:
+                    self.L.context._session.proxies = {}
+                    logger.info("📡 [Instaloader] Post fetch attempt %d: Using direct connection", i + 1)
 
-            # التحقق من وجود المجلد
-            if not os.path.exists(target_dir):
-                if os.path.exists(target_name):
-                    target_dir = os.path.abspath(target_name)
+                logger.info("📥 [Instaloader] Fetching post: %s", shortcode)
+                post = instaloader.Post.from_shortcode(self.L.context, shortcode)
+                description = post.caption or ""
+                
+                # التحميل الفعلي
+                logger.info("📥 [Instaloader] Downloading to folder: %s", target_name)
+                self.L.download_post(post, target=target_name)
 
-            # جمع الملفات
-            media_files = []
-            if os.path.exists(target_dir):
-                for f in os.listdir(target_dir):
-                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.mp4')):
-                        media_files.append(os.path.join(target_dir, f))
+                # التحقق من وجود المجلد
+                if not os.path.exists(target_dir):
+                    if os.path.exists(target_name):
+                        target_dir = os.path.abspath(target_name)
 
-            if not media_files:
-                raise ValueError("لم يتم العثور على ملفات وسائط بعد تحميل Instaloader")
+                # جمع الملفات
+                media_files = []
+                if os.path.exists(target_dir):
+                    for f in os.listdir(target_dir):
+                        if f.lower().endswith(('.jpg', '.jpeg', '.png', '.mp4')):
+                            media_files.append(os.path.join(target_dir, f))
 
-            media_files.sort()
+                if not media_files:
+                    raise ValueError("لم يتم العثور على ملفات وسائط بعد تحميل Instaloader")
 
-            # إذا كان ملفاً واحداً
-            if len(media_files) == 1:
-                final_path = os.path.join(self.abs_download_path, f"insta_{shortcode}_{int(time.time())}{os.path.splitext(media_files[0])[1]}")
-                shutil.copy2(media_files[0], final_path)
-                shutil.rmtree(target_dir, ignore_errors=True)
-                return {"results": final_path, "description": description}
-            
-            # ألبوم
-            logger.info("✅ [Instaloader] Success: %d items", len(media_files))
-            return {"results": media_files, "description": description}
+                media_files.sort()
 
-        except Exception as e:
-            logger.error("❌ [Instaloader] Error: %s", e)
-            if os.path.exists(target_dir):
-                shutil.rmtree(target_dir, ignore_errors=True)
-            raise ValueError(f"⚠️ خطأ في تحميل المنشور: {str(e)}")
+                # إذا كان ملفاً واحداً
+                if len(media_files) == 1:
+                    final_path = os.path.join(self.abs_download_path, f"insta_{shortcode}_{int(time.time())}{os.path.splitext(media_files[0])[1]}")
+                    shutil.copy2(media_files[0], final_path)
+                    shutil.rmtree(target_dir, ignore_errors=True)
+                    return {"results": final_path, "description": description}
+                
+                # ألبوم
+                logger.info("✅ [Instaloader] Success: %d items", len(media_files))
+                return {"results": media_files, "description": description}
+
+            except Exception as e:
+                last_error = e
+                logger.warning("⚠️ [Instaloader] Post fetch attempt %d failed: %s", i + 1, e)
+                if os.path.exists(target_dir):
+                    shutil.rmtree(target_dir, ignore_errors=True)
+
+        raise ValueError(f"⚠️ خطأ في تحميل المنشور: {str(last_error)}")
 
     def _get_shortcode(self, url: str) -> str:
         parts = [p for p in url.split("/") if p]
@@ -151,27 +176,53 @@ class InstagramDownloader(BaseDownloader):
 
     def get_active_stories(self, username: str) -> list[dict]:
         """جلب قائمة القصص النشطة لمستخدم معين."""
+        proxies = []
         try:
-            self._set_random_proxy()
-            logger.info("📥 [Instaloader] Fetching profile stories for: %s", username)
-            # التأكد من صحة الجلسة عبر محاولة جلب الملف الشخصي
-            profile = instaloader.Profile.from_username(self.L.context, username)
-            
-            stories_items = []
-            for story in self.L.get_stories(userids=[profile.userid]):
-                for item in story.get_items():
-                    stories_items.append({
-                        "media_id": item.mediaid,
-                        "is_video": item.is_video,
-                        "url": item.video_url if item.is_video else item.url,
-                        "date": item.date_utc.strftime("%Y-%m-%d %H:%M:%S")
-                    })
-            # ترتيب من الأقدم للأحدث
-            stories_items.sort(key=lambda x: x["date"])
-            return stories_items
-        except Exception as e:
-            logger.error("❌ [Instaloader] Error fetching stories: %s", e)
-            raise Exception(f"فشل جلب القصص للحساب {username}. قد يكون الحساب خاصاً أو ملف الكوكيز منتهي الصلاحية.")
+            proxies = database.get_proxies()
+        except Exception as pe:
+            logger.warning("⚠️ Error fetching proxies from database: %s", pe)
+
+        attempts = []
+        if proxies:
+            sampled = random.sample(proxies, min(len(proxies), 3))
+            for p in sampled:
+                p_str = p.strip()
+                if p_str:
+                    if not p_str.startswith(("http://", "https://", "socks5://", "socks4://")):
+                        p_str = f"http://{p_str}"
+                    attempts.append(p_str)
+        attempts.append(None) # محاولة بالاتصال المباشر
+
+        last_error = None
+        for i, proxy in enumerate(attempts):
+            try:
+                if proxy:
+                    self.L.context._session.proxies = {"http": proxy, "https": proxy}
+                    logger.info("📡 [Instaloader] Stories fetch attempt %d: Using proxy: %s", i + 1, proxy)
+                else:
+                    self.L.context._session.proxies = {}
+                    logger.info("📡 [Instaloader] Stories fetch attempt %d: Using direct connection", i + 1)
+                
+                logger.info("📥 [Instaloader] Fetching profile stories for: %s", username)
+                profile = instaloader.Profile.from_username(self.L.context, username)
+                
+                stories_items = []
+                for story in self.L.get_stories(userids=[profile.userid]):
+                    for item in story.get_items():
+                        stories_items.append({
+                            "media_id": item.mediaid,
+                            "is_video": item.is_video,
+                            "url": item.video_url if item.is_video else item.url,
+                            "date": item.date_utc.strftime("%Y-%m-%d %H:%M:%S")
+                        })
+                # ترتيب من الأقدم للأحدث
+                stories_items.sort(key=lambda x: x["date"])
+                return stories_items
+            except Exception as e:
+                last_error = e
+                logger.warning("⚠️ [Instaloader] Stories fetch attempt %d failed for user %s: %s", i + 1, username, e)
+
+        raise Exception(f"فشل جلب القصص للحساب {username} بعد تجربة البروكسيات والاتصال المباشر. قد يكون الحساب خاصاً أو ملف الكوكيز منتهي الصلاحية. التفاصيل: {last_error}")
 
     def download_story_url(self, url: str, is_video: bool) -> str:
         """تحميل قصة فردية مباشرة من رابط الـ CDN الخاص بإنستغرام."""
@@ -180,20 +231,47 @@ class InstagramDownloader(BaseDownloader):
         filename = f"story_{uuid.uuid4()}{ext}"
         filepath = os.path.join(self.abs_download_path, filename)
         
+        proxies = []
         try:
-            self._set_random_proxy()
-            response = self.L.context._session.get(url, stream=True, timeout=15)
-            response.raise_for_status()
-            with open(filepath, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            return filepath
-        except Exception as e:
-            logger.error("❌ Failed to download story URL: %s", e)
-            if os.path.exists(filepath):
-                try: os.remove(filepath)
-                except: pass
-            raise Exception(f"فشل تحميل ملف القصة: {e}")
+            proxies = database.get_proxies()
+        except:
+            pass
+
+        attempts = []
+        if proxies:
+            sampled = random.sample(proxies, min(len(proxies), 3))
+            for p in sampled:
+                p_str = p.strip()
+                if p_str:
+                    if not p_str.startswith(("http://", "https://", "socks5://", "socks4://")):
+                        p_str = f"http://{p_str}"
+                    attempts.append(p_str)
+        attempts.append(None)
+
+        last_error = None
+        for i, proxy in enumerate(attempts):
+            try:
+                if proxy:
+                    self.L.context._session.proxies = {"http": proxy, "https": proxy}
+                    logger.info("📡 [Instaloader] Story download attempt %d: Using proxy: %s", i + 1, proxy)
+                else:
+                    self.L.context._session.proxies = {}
+                    logger.info("📡 [Instaloader] Story download attempt %d: Using direct connection", i + 1)
+
+                response = self.L.context._session.get(url, stream=True, timeout=15)
+                response.raise_for_status()
+                with open(filepath, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                return filepath
+            except Exception as e:
+                last_error = e
+                logger.warning("⚠️ [Instaloader] Story download attempt %d failed: %s", i + 1, e)
+                if os.path.exists(filepath):
+                    try: os.remove(filepath)
+                    except: pass
+
+        raise Exception(f"فشل تحميل ملف القصة بعد تجربة البروكسيات والاتصال المباشر: {last_error}")
 
     def cleanup(self, path_or_list):
         if not path_or_list: return
