@@ -208,6 +208,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         async with _download_semaphore:   # حد للتحميلات المتزامنة
             try:
+                results = None
                 loop      = asyncio.get_running_loop()
                 stats_dict = await loop.run_in_executor(
                     EXECUTOR, downloader.download_video, url
@@ -276,7 +277,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
             except Exception as e:
                 logger.error(f"Download Error: {e}", exc_info=True)
-                database.log_error(user_id=user_id, platform=platform, url=url, error_msg=str(e))
+                database.log_error(user_id=user.id, platform=platform, url=url, error_msg=str(e))
                 final_error_msg = msg_error.replace("{error}", str(e))
                 await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_error_msg)
             finally:

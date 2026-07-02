@@ -35,8 +35,90 @@ class TikTokDownloader(BaseDownloader):
                 return res
             raise ValueError("yt-dlp returned no valid results")
         except Exception as exc:
-            logger.warning("⚠️ فشل yt-dlp في تحميل الرابط، محاولة الحل البديل للصور: %s", exc)
+            logger.warning("⚠️ فشل yt-dlp في تحميل الرابط، محاولة الحل البديل عبر TikWM: %s", exc)
+            
+            # المحاولة الثانية عبر TikWM API
+            tikwm_res = self._fallback_tikwm_download(url)
+            if tikwm_res:
+                return tikwm_res
+                
+            logger.warning("⚠️ فشل الحل البديل لـ TikWM، محاولة الحل البديل للصور من الصفحة")
             return self._fallback_photo_download(url)
+
+    def _download_url_to_file(self, url: str, ext: str = ".mp4") -> str:
+        filename = f"{uuid.uuid4()}{ext}"
+        path = os.path.join(self.download_path, filename)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://www.tiktok.com/",
+        }
+        response = requests.get(url, headers=headers, stream=True, timeout=20)
+        response.raise_for_status()
+        with open(path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        return path
+
+    def _resolve_redirect(self, url: str) -> str:
+        if not re.search(r"https?://(vt|vm)\.tiktok\.com/", url, re.IGNORECASE):
+            return url
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            }
+            response = requests.head(url, headers=headers, allow_redirects=True, timeout=10)
+            return response.url
+        except Exception as e:
+            logger.warning("⚠️ فشل في تتبع تحويل الرابط: %s", e)
+            return url
+
+    def _fallback_tikwm_download(self, url: str) -> dict | None:
+        resolved_url = self._resolve_redirect(url)
+        # إزالة معاملات الاستعلام من الرابط المحوّل لتفادي خطأ التحليل في TikWM
+        if "?" in resolved_url:
+            resolved_url = resolved_url.split("?")[0]
+            
+        logger.info("🔄 محاولة التحميل عبر TikWM API للرابط: %s (الرابط المحوّل والمُنظّف: %s)", url, resolved_url)
+        try:
+            res = requests.post("https://www.tikwm.com/api/", data={"url": resolved_url}, timeout=15)
+            res.raise_for_status()
+            data = res.json()
+            if data.get("code") == 0:
+                video_data = data.get("data") or {}
+                title = video_data.get("title") or ""
+                
+                # التحقق مما إذا كان المنشور عبارة عن ألبوم صور (Slideshow)
+                images = video_data.get("images")
+                if images and isinstance(images, list) and len(images) > 0:
+                    logger.info("📸 تم اكتشاف ألبوم صور (Slideshow) عبر TikWM")
+                    file_paths = []
+                    for img_url in images:
+                        if img_url:
+                            try:
+                                path = self._download_url_to_file(img_url, ext=".jpg")
+                                file_paths.append(path)
+                            except Exception as e:
+                                logger.warning("⚠️ فشل تحميل صورة من TikWM: %s", e)
+                    if file_paths:
+                        return {
+                            "results": file_paths,
+                            "description": title
+                        }
+                
+                # تحميل مقطع الفيديو
+                play_url = video_data.get("play")
+                if play_url:
+                    logger.info("📹 تم العثور على رابط فيديو عبر TikWM: %s", play_url)
+                    path = self._download_url_to_file(play_url, ext=".mp4")
+                    return {
+                        "results": path,
+                        "description": title
+                    }
+            else:
+                logger.warning("⚠️ TikWM API returned error: %s", data.get("msg"))
+        except Exception as e:
+            logger.error("❌ فشل التحميل عبر TikWM API: %s", e)
+        return None
 
     def _fallback_photo_download(self, url: str) -> dict:
         """حل بديل لتحميل صور تيك توك (Slideshow) عند فشل yt-dlp."""
