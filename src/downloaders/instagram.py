@@ -53,6 +53,16 @@ class InstagramDownloader(BaseDownloader):
                 cj.load(ignore_discard=True, ignore_expires=True)
                 self.L.context._session.cookies.update(cj)
                 logger.info("✅ Instaloader session loaded with cookies")
+                
+                # استخراج ds_user_id وتعيينه كاسم مستخدم السياق لـ Instaloader لإثبات تسجيل الدخول
+                ds_user_id = None
+                for cookie in cj:
+                    if cookie.name == "ds_user_id":
+                        ds_user_id = cookie.value
+                        break
+                if ds_user_id:
+                    self.L.context.username = ds_user_id
+                    logger.info("✅ Mocked logged-in username in Instaloader context: %s", ds_user_id)
             except Exception as e:
                 logger.warning("⚠️ Could not load Instagram cookies into Instaloader: %s", e)
 
