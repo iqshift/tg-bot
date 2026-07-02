@@ -61,6 +61,22 @@ class InstagramDownloader(BaseDownloader):
         if not shortcode:
             raise ValueError("رابط Instagram غير صالح أو غير مدعوم")
 
+        # نحاول أولاً استخدام yt-dlp لأنه الأسرع والأكثر استقراراً حالياً للفيديوهات والمنشورات الفردية
+        logger.info("📥 [yt-dlp] Attempting download first for: %s", url)
+        try:
+            opts = {}
+            if os.path.exists(config.INSTAGRAM_COOKIES):
+                opts["cookiefile"] = config.INSTAGRAM_COOKIES
+                logger.info("✅ Using Instagram cookies for yt-dlp")
+            
+            res = self._download(url, extra_opts=opts)
+            if res and os.path.exists(res["results"]) and not res["results"].lower().endswith(".na"):
+                logger.info("✅ [yt-dlp] Download success")
+                return {"results": res["results"], "description": res["description"]}
+        except Exception as yt_err:
+            logger.warning("⚠️ [yt-dlp] Failed to download: %s. Trying Instaloader...", yt_err)
+
+        # إذا فشل yt-dlp، نلجأ إلى Instaloader كخيار احتياطي (مثلاً للألبومات المتعددة)
         # اسم المجلد النسبي
         target_name = f"temp_{shortcode}_{int(time.time())}"
         # المسار الفعلي المتوقع
@@ -88,7 +104,7 @@ class InstagramDownloader(BaseDownloader):
                         media_files.append(os.path.join(target_dir, f))
 
             if not media_files:
-                raise ValueError("فشل التحميل: لم يتم العثور على ملفات وسائط")
+                raise ValueError("لم يتم العثور على ملفات وسائط بعد تحميل Instaloader")
 
             media_files.sort()
 
@@ -107,21 +123,6 @@ class InstagramDownloader(BaseDownloader):
             logger.error("❌ [Instaloader] Error: %s", e)
             if os.path.exists(target_dir):
                 shutil.rmtree(target_dir, ignore_errors=True)
-            
-            # Fallback
-            logger.info("🔄 Falling back to yt-dlp...")
-            try:
-                opts = {}
-                if os.path.exists(config.INSTAGRAM_COOKIES):
-                    opts["cookiefile"] = config.INSTAGRAM_COOKIES
-                    logger.info("✅ Using Instagram cookies for fallback")
-                
-                res = self._download(url, extra_opts=opts)
-                if os.path.exists(res["results"]) and not res["results"].lower().endswith(".na"):
-                    return {"results": res["results"], "description": res["description"]}
-            except Exception as fallback_err:
-                logger.error("❌ Fallback also failed: %s", fallback_err)
-            
             raise ValueError(f"⚠️ خطأ في تحميل المنشور: {str(e)}")
 
     def _get_shortcode(self, url: str) -> str:

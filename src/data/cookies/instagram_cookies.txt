@@ -4,10 +4,11 @@
 .instagram.com	TRUE	/	TRUE	1801666817	ps_n	1
 .instagram.com	TRUE	/	TRUE	1797357402	datr	TicSaZb8cpGrSW8PgTD2OT9l
 .instagram.com	TRUE	/	TRUE	1794333396	ig_nrcb	1
-.instagram.com	TRUE	/	TRUE	1779431016	ds_user_id	51791265300
-.instagram.com	TRUE	/	TRUE	1806402688	csrftoken	YHsA6Chd3p1sx1M600TsJsHgc69ezLbv
+.instagram.com	TRUE	/	TRUE	1790783564	ds_user_id	80221841845
+.instagram.com	TRUE	/	TRUE	1817567564	csrftoken	WHTij9vk3MSfGC1jqWIyv5TGskz4nDjX
 .instagram.com	TRUE	/	TRUE	1794333402	ig_did	7F60DE80-B4E5-4500-8652-854701F21077
 .instagram.com	TRUE	/	TRUE	1801666817	ps_l	1
-.instagram.com	TRUE	/	TRUE	1772259809	wd	1528x732
-.instagram.com	TRUE	/	TRUE	1797357401	mid	aRInTgALAAHgJF98LobTQzMPlgOg
-.instagram.com	TRUE	/	TRUE	1772259809	dpr	1.25
+.instagram.com	TRUE	/	TRUE	1783611953	wd	1910x915
+.instagram.com	TRUE	/	TRUE	1807330419	mid	aapUcgALAAGUMX6-VPIIcA3oOlaj
+.instagram.com	TRUE	/	TRUE	1814543124	sessionid	80221841845%3AvtiwMne4TWHee0%3A25%3AAYhpDPJo-4no6AKxEL2z1PGGIR4O4Nrzxfsja6by7g
+.instagram.com	TRUE	/	TRUE	0	rur	"RVA\05480221841845\0541814543564:01ff73267b18ceb57bcae65ce5aec229e998ab1bf47c833a43c59dcc8502b7084899e291"
