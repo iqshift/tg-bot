@@ -56,12 +56,11 @@ DB_PATH: str = os.path.join(BASE_DIR, "data", "users.db")
 DOWNLOADS_DIR: str = os.path.join(BASE_DIR, "..", "downloads")
 
 # ─── Cookies (في data/cookies/ حتى يصلها Docker) ─────────────────────────────
-COOKIES_DIR: str       = os.path.join(BASE_DIR, "data", "cookies")
-INSTAGRAM_COOKIES: str = os.path.join(COOKIES_DIR, "instagram_cookies.txt")
+COOKIES_DIR: str      = os.path.join(BASE_DIR, "data", "cookies")
 TIKTOK_COOKIES: str    = os.path.join(COOKIES_DIR, "tiktok_cookies.txt")
 FACEBOOK_COOKIES: str  = os.path.join(COOKIES_DIR, "facebook_cookies.txt")
 
-# ─── Proxy Rotation (للتحايل على rate-limit Instagram) ───────────────────────
+# ─── Proxy Rotation (للتحايل على rate-limit وتجنب الحظر) ──────────────────────
 PROXY_LIST_FILE: str = os.path.join(BASE_DIR, "data", "working_socks5.txt")
 
 

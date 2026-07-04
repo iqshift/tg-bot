@@ -76,7 +76,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         if not user: return
         
-        # جلب الصورة وتحيين المستخدم بشكل موحد
         await _update_user_db(context, user)
         database.log_message(user.id, "user", "/start")
 
@@ -86,11 +85,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         msg = database.get_setting("welcome_msg", "أهلاً! أرسل رابط الفيديو.")
         
-        # جلب إعدادات المشاركة
         share_msg  = database.get_setting("share_msg", "هذا هو البوت الاحترافي للتحميل! @ir4qibot")
         share_btn  = database.get_setting("share_btn_text", "مشاركة مع الأصدقاء 🔗")
         
-        # تجهيز رابط المشاركة
         import urllib.parse
         try:
             bot_meta = await context.bot.get_me()
@@ -110,7 +107,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         database.log_message(user.id, "bot", msg)
     except Exception as e:
         logger.error(f"FATAL error in start: {e}", exc_info=True)
-        print(f"DEBUG START ERROR: {e}")
 
 
 # ─── /help ───────────────────────────────────────────────────────────────────
@@ -122,7 +118,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         db_user = database.get_user(user.id)
         if db_user and db_user["is_banned"]:
             return
-        msg = database.get_setting("help_msg", "أرسل رابط Instagram أو Facebook أو TikTok.")
+        msg = database.get_setting("help_msg", "أرسل رابط فيديو من Instagram أو Facebook أو TikTok.")
         await update.message.reply_text(msg)
         database.log_message(user.id, "bot", msg)
     except Exception as e:
@@ -156,55 +152,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not update.message or not update.message.text: return
         url     = update.message.text.strip()
 
-        # تسجيل المستخدم في الخلفية (لا نعطّل معالجة الرابط)
         asyncio.create_task(_update_user_db(context, user))
         database.log_message(user.id, "user", url)
 
-        # فحص الحظر (من الـ cache عادةً)
         db_user = database.get_user(user.id)
         if db_user and db_user["is_banned"]:
             msg = database.get_setting("msg_banned", "⛔ أنت محظور.")
             await update.message.reply_text(msg)
             return
 
-        # فحص القائمة البيضاء (Exemption)
         whitelist_entry = database.get_whitelisted(user.id)
         is_whitelisted  = whitelist_entry is not None
 
-        # فحص اشتراك القنوات (يتخطى إذا كان في القائمة البيضاء)
         if not is_whitelisted:
             if not await _check_subscriptions(update, context, user.id, chat_id):
                 return
 
-        # التحقق من أن النص هو رابط فعلي، وإلا التحقق من كونه اسم مستخدم (مع دعم النقطة والشرطة السفلية)
         if not url.startswith(("http://", "https://")):
             import re
-            # يدعم الأسماء التي تحتوي على حروف وأرقام ونقطة وشرطة سفلية (كـ user.name)
             username_match = re.match(r"^@?([a-zA-Z0-9._]{1,30})$", url)
             if username_match:
                 username = username_match.group(1)
-                # عرض اختيار المنصة (إنستغرام أو تيك توك)
+                # عرض اختيار المنصة (تيك توك فقط بعد إزالة إنستغرام)
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                ig_cb = f"plat:ig:{username}"[:64]
                 tt_cb = f"plat:tt:{username}"[:64]
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton(text="📸 إنستغرام", callback_data=ig_cb),
-                    InlineKeyboardButton(text="🎵 تيك توك",  callback_data=tt_cb),
+                    InlineKeyboardButton(text="🎵 تيك توك", callback_data=tt_cb),
                 ]])
                 await update.message.reply_text(
-                    f"👤 اختر المنصة لعرض قصص @{username}:",
+                    f"👤 اختر المنصة لعرض مقاطع @{username}:",
                     reply_markup=keyboard,
                 )
                 return
             else:
-                msg = "⚠️ يرجى إرسال رابط فيديو صحيح من Instagram أو Facebook أو TikTok، أو إرسال اسم مستخدم (يبدأ بـ @) لتحميل القصص."
+                msg = "⚠️ يرجى إرسال رابط فيديو صحيح من Instagram أو Facebook أو TikTok، أو إرسال اسم مستخدم تيك توك (يبدأ بـ @)."
                 await update.message.reply_text(msg)
                 return
 
         # ----- التحميل -----
         downloader, platform = _get_downloader(url)
 
-        # تخصيص الرد لمستخدمي القائمة البيضاء
         custom_reply = whitelist_entry.get("custom_reply") if is_whitelisted else None
         
         msg_analyzing = custom_reply if custom_reply else database.get_setting("msg_analyzing", "جاري التحليل... 🔍")
@@ -215,10 +202,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         status_msg = await update.message.reply_text(msg_analyzing)
 
-        # تحرير الـ event loop أثناء التحميل
         await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=msg_routing)
 
-        async with _download_semaphore:   # حد للتحميلات المتزامنة
+        async with _download_semaphore:
             try:
                 results = None
                 loop      = asyncio.get_running_loop()
@@ -226,7 +212,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     EXECUTOR, downloader.download_video, url
                 )
                 
-                # استخراج النتائج والوصف
                 results     = stats_dict.get("results")
                 description = stats_dict.get("description", "")
 
@@ -234,10 +219,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     chat_id=chat_id, message_id=status_msg.message_id, text=msg_complete
                 )
 
-                # دمج الوصف المستخرج مع الكابشن الافتراضي
-                # سنقوم بوضع الوصف في البداية ثم المصدر
                 final_caption = f"{description}\n\n{msg_caption}" if description else msg_caption
-                # تليجرام لديه حد أقصى للحروف في الكابشن (1024)
                 if len(final_caption) > 1024:
                     final_caption = final_caption[:1020] + "..."
 
@@ -247,11 +229,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                       return
 
                 if isinstance(results, list):
-                    # إرسال ألبوم (Media Group)
                     from telegram import InputMediaPhoto, InputMediaVideo
                     media = []
-                    # تليجرام يسمح بـ 10 عناصر بحد أقصى لكل مجموعة
-                    # نستخدم قائمة لفتح الملفات لضمان إغلاقها لاحقاً
                     opened_files = []
                     try:
                         for item in results[:10]:
@@ -269,7 +248,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         for f in opened_files:
                             f.close()
                 else:
-                    # إرسال ملف واحد (فيديو أو صورة)
                     if results.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
                         with open(results, 'rb') as f:
                             await context.bot.send_photo(
@@ -294,25 +272,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 error_msg_replaced = msg_error.replace("{error}", str(e))
                 await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg_replaced)
             finally:
-                # تنظيف الملفات بعد الإرسال أو الفشل
                 if results:
                     try:
                         downloader.cleanup(results)
                     except: pass
     except Exception as e:
         logger.error(f"FATAL error in handle_message: {e}", exc_info=True)
-        print(f"DEBUG HANDLE_MSG ERROR: {e}")
-
-
-
 
 
 # ─── دوال مساعدة ─────────────────────────────────────────────────────────────
-async def _update_user(context: ContextTypes.DEFAULT_TYPE, user) -> None:
-    """تحديث بيانات المستخدم في الخلفية (نسخة قديمة - يرجى استخدام _update_user_db)."""
-    await _update_user_db(context, user)
-
-
 async def _check_subscriptions(update, context, user_id: int, chat_id: int) -> bool:
     """فحص اشتراك القنوات المطلوبة. يُعيد True إذا اجتاز المستخدم الفحص."""
     required_str = database.get_setting("required_channels", "")
@@ -321,7 +289,6 @@ async def _check_subscriptions(update, context, user_id: int, chat_id: int) -> b
 
     channels   = [c.strip() for c in required_str.split(",") if c.strip()]
     not_joined = []
-    # فحص جميع القنوات بالتوازي
     results = await asyncio.gather(
         *[_is_member(context, chat_id=ch, user_id=user_id) for ch in channels],
         return_exceptions=True,
@@ -344,112 +311,6 @@ async def _is_member(context, chat_id: str, user_id: int) -> bool:
         return member.status not in ("left", "kicked")
     except Exception:
         return False
-
-
-async def handle_instagram_stories(update: Update, context: ContextTypes.DEFAULT_TYPE, username: str) -> None:
-    chat_id = update.effective_chat.id
-    user = update.effective_user
-    
-    # فحص الحظر والاشتراك
-    db_user = database.get_user(user.id)
-    if db_user and db_user["is_banned"]:
-        return
-
-    # فحص اشتراك القنوات
-    whitelist_entry = database.get_whitelisted(user.id)
-    is_whitelisted = whitelist_entry is not None
-    if not is_whitelisted:
-        if not await _check_subscriptions(update, context, user.id, chat_id):
-            return
-
-    status_msg = await update.message.reply_text(f"🔍 جاري البحث عن قصص نشطة للحساب @{username}...")
-
-    try:
-        # تشغيل جلب القصص في خيط منفصل لمنع تجميد الخادم
-        loop = asyncio.get_running_loop()
-        stories = await loop.run_in_executor(
-            EXECUTOR, _insta.get_active_stories, username
-        )
-
-        if not stories:
-            await status_msg.edit_text(f"📭 لا توجد أي قصص (Stories) نشطة للحساب @{username} حالياً، أو أن الحساب خاص.")
-            return
-
-        # حفظ قائمة القصص في ذاكرة الـ context.user_data
-        context.user_data[f"stories_{username}"] = stories
-
-        # إنشاء الأزرار
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        keyboard = []
-        
-        for i, s in enumerate(stories[:15]):
-            type_str = "📹 فيديو" if s["is_video"] else "🖼️ صورة"
-            time_str = s["date"].split(" ")[1][:5]  # HH:MM
-            btn_text = f"القصة {i+1} ({type_str}) - {time_str}"
-            keyboard.append([InlineKeyboardButton(text=btn_text, callback_data=f"st:{username}:{i}")])
-
-        # زر تحميل الكل
-        keyboard.append([InlineKeyboardButton(text="📥 تحميل كل القصص", callback_data=f"stall:{username}")])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await status_msg.edit_text(
-            f"📸 تم العثور على {len(stories)} قصة نشطة لحساب @{username}.\nاختر القصة التي تريد تحميلها أو قم تحميل الكل:",
-            reply_markup=reply_markup
-        )
-    except ValueError as ve:
-        # إظهار أخطاء إدخال المستخدم (مثل الحساب خاص أو غير موجود) بشكل مباشر لتنبيهه
-        await status_msg.edit_text(f"⚠️ {str(ve)}")
-    except Exception as e:
-        logger.error("Error in handle_instagram_stories: %s", e)
-        database.log_error(user_id=user.id, platform="Instagram Stories", url=f"@{username}", error_msg=str(e))
-        msg_stories_err = database.get_setting("msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌")
-        await status_msg.edit_text(msg_stories_err)
-
-
-# ─── دوال مساعدة لعرض القصص/المقاطع من Callback ──────────────────────────────
-async def _handle_ig_stories_from_callback(
-    query, context: ContextTypes.DEFAULT_TYPE,
-    username: str, chat_id: int, user_id: int
-) -> None:
-    """عرض قصص إنستغرام النشطة بعد اختيار المنصة من Callback."""
-    status_msg = await query.message.reply_text(
-        f"🔍 جاري البحث عن قصص نشطة للحساب @{username}..."
-    )
-    try:
-        loop = asyncio.get_running_loop()
-        stories = await loop.run_in_executor(EXECUTOR, _insta.get_active_stories, username)
-
-        if not stories:
-            await status_msg.edit_text(
-                f"📭 لا توجد قصص نشطة للحساب @{username} حالياً، أو أن الحساب خاص."
-            )
-            return
-
-        context.user_data[f"stories_{username}"] = stories
-
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        keyboard = []
-        for i, s in enumerate(stories[:15]):
-            type_str = "📹 فيديو" if s["is_video"] else "🖼️ صورة"
-            time_str = s["date"].split(" ")[1][:5]
-            btn_text  = f"القصة {i+1} ({type_str}) - {time_str}"
-            keyboard.append([InlineKeyboardButton(text=btn_text, callback_data=f"st:{username}:{i}")])
-        keyboard.append([InlineKeyboardButton(text="📥 تحميل كل القصص", callback_data=f"stall:{username}")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await status_msg.edit_text(
-            f"📸 تم العثور على {len(stories)} قصة نشطة لحساب @{username}.\n"
-            "اختر القصة التي تريد تحميلها أو قم بتحميل الكل:",
-            reply_markup=reply_markup,
-        )
-    except ValueError as ve:
-        await status_msg.edit_text(f"⚠️ {str(ve)}")
-    except Exception as e:
-        logger.error("Error in _handle_ig_stories_from_callback: %s", e)
-        database.log_error(user_id=user_id, platform="Instagram Stories", url=f"@{username}", error_msg=str(e))
-        msg_err = database.get_setting(
-            "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
-        )
-        await status_msg.edit_text(msg_err)
 
 
 async def _handle_tt_videos_from_callback(
@@ -479,7 +340,7 @@ async def _handle_tt_videos_from_callback(
             duration = v.get("duration", 0)
             dur_str  = f" ({duration}s)" if duration else ""
             btn_text = f"🎵 {i+1}. {title}{dur_str}"[:40]
-            cb_data  = f"ttv:{username}:{i}"[:64]   # callback_data max 64 bytes
+            cb_data  = f"ttv:{username}:{i}"[:64]
             keyboard.append([InlineKeyboardButton(text=btn_text, callback_data=cb_data)])
         keyboard.append([InlineKeyboardButton(
             text="📥 تحميل الكل", callback_data=f"ttvall:{username}"[:64]
@@ -495,10 +356,7 @@ async def _handle_tt_videos_from_callback(
     except Exception as e:
         logger.error("Error in _handle_tt_videos_from_callback: %s", e)
         database.log_error(user_id=user_id, platform="TikTok User Videos", url=f"@{username}", error_msg=str(e))
-        msg_err = database.get_setting(
-            "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
-        )
-        await status_msg.edit_text(msg_err)
+        await status_msg.edit_text("عذراً، حدث خطأ. يرجى المحاولة لاحقاً ❌")
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -509,109 +367,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     chat_id = query.message.chat_id
     user_id = query.from_user.id
 
-    # فحص الحظر
     db_user = database.get_user(user_id)
     if db_user and db_user["is_banned"]:
         return
 
-    # ── اختيار المنصة (إنستغرام / تيك توك) ─────────────────────────────────
+    # ── اختيار المنصة (تيك توك فقط) ────────────────────────────────────────
     if data.startswith("plat:"):
         parts    = data.split(":", 2)
         platform = parts[1] if len(parts) > 1 else ""
         username = parts[2] if len(parts) > 2 else ""
         if not username:
             return
-        if platform == "ig":
-            await _handle_ig_stories_from_callback(query, context, username, chat_id, user_id)
-        elif platform == "tt":
+        if platform == "tt":
             await _handle_tt_videos_from_callback(query, context, username, chat_id, user_id)
-
-    # ── تحميل قصة إنستغرام فردية ────────────────────────────────────────────
-    elif data.startswith("st:"):
-        parts    = data.split(":")
-        username = parts[1]
-        index    = int(parts[2])
-
-        stories = context.user_data.get(f"stories_{username}")
-        if not stories or index >= len(stories):
-            await query.edit_message_text("❌ انتهت صلاحية القائمة. يرجى إرسال اسم المستخدم مجدداً.")
-            return
-
-        story      = stories[index]
-        status_msg = await query.message.reply_text("📥 جاري تحميل القصة...")
-        try:
-            loop      = asyncio.get_running_loop()
-            file_path = await loop.run_in_executor(
-                EXECUTOR, _insta.download_story_url, story["url"], story["is_video"]
-            )
-            await status_msg.edit_text("📤 جاري الرفع إلى تليجرام...")
-            caption = f"👤 الحساب: @{username}\n📅 التاريخ: {story['date']}"
-            if story["is_video"]:
-                with open(file_path, "rb") as f:
-                    await context.bot.send_video(
-                        chat_id=chat_id, video=f, caption=caption,
-                        reply_to_message_id=query.message.message_id
-                    )
-            else:
-                with open(file_path, "rb") as f:
-                    await context.bot.send_photo(
-                        chat_id=chat_id, photo=f, caption=caption,
-                        reply_to_message_id=query.message.message_id
-                    )
-            await status_msg.delete()
-            _insta.cleanup(file_path)
-        except Exception as e:
-            logger.error("Error downloading story: %s", e)
-            database.log_error(user_id=user_id, platform="Instagram Stories",
-                               url=f"@{username} (single)", error_msg=str(e))
-            msg_err = database.get_setting(
-                "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
-            )
-            await status_msg.edit_text(msg_err)
-
-    # ── تحميل جميع قصص إنستغرام ─────────────────────────────────────────────
-    elif data.startswith("stall:"):
-        _, username = data.split(":", 1)
-        stories     = context.user_data.get(f"stories_{username}")
-        if not stories:
-            await query.edit_message_text("❌ انتهت صلاحية القائمة. يرجى إرسال اسم المستخدم مجدداً.")
-            return
-
-        status_msg = await query.message.reply_text(
-            f"📥 جاري تحميل {len(stories)} قصة... قد يستغرق هذا بعض الوقت."
-        )
-        try:
-            downloaded_files = []
-            loop             = asyncio.get_running_loop()
-            tasks            = [
-                loop.run_in_executor(EXECUTOR, _insta.download_story_url, s["url"], s["is_video"])
-                for s in stories
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            await status_msg.edit_text("📤 جاري الرفع إلى تليجرام...")
-            for s, res in zip(stories, results):
-                if isinstance(res, Exception):
-                    logger.error("Error downloading one story: %s", res)
-                    continue
-                downloaded_files.append(res)
-                caption = f"👤 الحساب: @{username}\n📅 التاريخ: {s['date']}"
-                if s["is_video"]:
-                    with open(res, "rb") as f:
-                        await context.bot.send_video(chat_id=chat_id, video=f, caption=caption)
-                else:
-                    with open(res, "rb") as f:
-                        await context.bot.send_photo(chat_id=chat_id, photo=f, caption=caption)
-            await status_msg.delete()
-            for fp in downloaded_files:
-                _insta.cleanup(fp)
-        except Exception as e:
-            logger.error("Error downloading all stories: %s", e)
-            database.log_error(user_id=user_id, platform="Instagram Stories",
-                               url=f"@{username} (all)", error_msg=str(e))
-            msg_err = database.get_setting(
-                "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
-            )
-            await status_msg.edit_text(msg_err)
 
     # ── تحميل مقطع تيك توك فردي ─────────────────────────────────────────────
     elif data.startswith("ttv:"):
@@ -665,10 +433,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             logger.error("Error downloading TikTok video: %s", e)
             database.log_error(user_id=user_id, platform="TikTok User Videos",
                                url=f"@{username}", error_msg=str(e))
-            msg_err = database.get_setting(
-                "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
-            )
-            await status_msg.edit_text(msg_err)
+            await status_msg.edit_text("عذراً، حدث خطأ أثناء التحميل ❌")
 
     # ── تحميل جميع مقاطع تيك توك ────────────────────────────────────────────
     elif data.startswith("ttvall:"):
@@ -713,7 +478,4 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if downloaded:
             await status_msg.delete()
         else:
-            msg_err = database.get_setting(
-                "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
-            )
-            await status_msg.edit_text(msg_err)
+            await status_msg.edit_text("عذراً، حدث خطأ أثناء التحميل ❌")

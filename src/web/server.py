@@ -1,5 +1,5 @@
-"""
-web/server.py - خادم Flask للوحة التحكم الإدارية
+﻿"""
+web/server.py - ط®ط§ط¯ظ… Flask ظ„ظ„ظˆط­ط© ط§ظ„طھط­ظƒظ… ط§ظ„ط¥ط¯ط§ط±ظٹط©
 """
 import os
 import asyncio
@@ -19,63 +19,63 @@ logger = logging.getLogger(__name__)
 try:
     from utils import server_utils
 except ImportError as e:
-    logger.error(f"❌ Failed to import server_utils: {e}")
+    logger.error(f"â‌Œ Failed to import server_utils: {e}")
     server_utils = None
 
-# ─── تهيئة Flask ─────────────────────────────────────────────────────────────
+# â”€â”€â”€ طھظ‡ظٹط¦ط© Flask â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app = Flask(__name__)
 app.secret_key = "ar_worm_ai_v3"
 
-# ─── متغيرات مشتركة مع البوت ─────────────────────────────────────────────────
+# â”€â”€â”€ ظ…طھط؛ظٹط±ط§طھ ظ…ط´طھط±ظƒط© ظ…ط¹ ط§ظ„ط¨ظˆطھ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 bot_app  = None
 bot_loop = None
 
 
 def run_flask() -> None:
-    """تشغيل خادم Flask (غير مستخدم في Cloud Run)."""
+    """طھط´ط؛ظٹظ„ ط®ط§ط¯ظ… Flask (ط؛ظٹط± ظ…ط³طھط®ط¯ظ… ظپظٹ Cloud Run)."""
     app.run(host="0.0.0.0", port=8080, debug=False, use_reloader=False)
 
 
-# ─── Telegram Webhook ────────────────────────────────────────────────────────
+# â”€â”€â”€ Telegram Webhook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.route("/webhook", methods=["POST"])
 def telegram_webhook():
-    """استقبال التحديثات من Telegram ومعالجتها مع نظام مراقبة."""
+    """ط§ط³طھظ‚ط¨ط§ظ„ ط§ظ„طھط­ط¯ظٹط«ط§طھ ظ…ظ† Telegram ظˆظ…ط¹ط§ظ„ط¬طھظ‡ط§ ظ…ط¹ ظ†ط¸ط§ظ… ظ…ط±ط§ظ‚ط¨ط©."""
     try:
         data = request.get_json(force=True)
         if not data:
             return "Empty", 400
             
         update_id = data.get("update_id", "???")
-        logger.info(f"📥 Incoming Hook: Update ID {update_id}")
+        logger.info(f"ًں“¥ Incoming Hook: Update ID {update_id}")
 
         if bot_app is None or bot_loop is None:
-            logger.warning(f"⚠️ Bot not ready for Update {update_id}")
+            logger.warning(f"âڑ ï¸ڈ Bot not ready for Update {update_id}")
             return "Bot not ready", 503
             
         update = Update.de_json(data, bot_app.bot)
-        # إرسال التحديث للمعالجة في خيط البوت
+        # ط¥ط±ط³ط§ظ„ ط§ظ„طھط­ط¯ظٹط« ظ„ظ„ظ…ط¹ط§ظ„ط¬ط© ظپظٹ ط®ظٹط· ط§ظ„ط¨ظˆطھ
         asyncio.run_coroutine_threadsafe(bot_app.process_update(update), bot_loop)
         return "OK", 200
     except Exception as e:
-        logger.error(f"❌ Webhook Error: {e}")
+        logger.error(f"â‌Œ Webhook Error: {e}")
         return "Error", 500
 
 
-# ─── المسارات ────────────────────────────────────────────────────────────────
+# â”€â”€â”€ ط§ظ„ظ…ط³ط§ط±ط§طھ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.route("/api/user_photo/<file_id>")
 def proxy_user_photo(file_id):
-    """بروكسي لجلب صورة المستخدم من تليجرام وحل مشكلة انتهاء الروابط."""
+    """ط¨ط±ظˆظƒط³ظٹ ظ„ط¬ظ„ط¨ طµظˆط±ط© ط§ظ„ظ…ط³طھط®ط¯ظ… ظ…ظ† طھظ„ظٹط¬ط±ط§ظ… ظˆط­ظ„ ظ…ط´ظƒظ„ط© ط§ظ†طھظ‡ط§ط، ط§ظ„ط±ظˆط§ط¨ط·."""
     try:
         if not bot_app or not bot_app.bot:
             return "Bot not active", 503
         
-        # جلب رابط الملف المتجدد باستخدام المعرف
+        # ط¬ظ„ط¨ ط±ط§ط¨ط· ط§ظ„ظ…ظ„ظپ ط§ظ„ظ…طھط¬ط¯ط¯ ط¨ط§ط³طھط®ط¯ط§ظ… ط§ظ„ظ…ط¹ط±ظپ
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         f = loop.run_until_complete(bot_app.bot.get_file(file_id))
         
-        # إعادة توجيه المتصفح للرابط الفعلي المتجدد
+        # ط¥ط¹ط§ط¯ط© طھظˆط¬ظٹظ‡ ط§ظ„ظ…طھطµظپط­ ظ„ظ„ط±ط§ط¨ط· ط§ظ„ظپط¹ظ„ظٹ ط§ظ„ظ…طھط¬ط¯ط¯
         return redirect(f.file_path)
     except Exception as e:
         logger.error(f"Error proxying photo {file_id}: {e}")
@@ -94,17 +94,17 @@ def dashboard():
     ]
     settings = {k: database.get_setting(k) for k in settings_keys}
     
-    # جلب التوكن والويب هوك من الملفات النصية كأولوية (بناءً على طلبك)
+    # ط¬ظ„ط¨ ط§ظ„طھظˆظƒظ† ظˆط§ظ„ظˆظٹط¨ ظ‡ظˆظƒ ظ…ظ† ط§ظ„ظ…ظ„ظپط§طھ ط§ظ„ظ†طµظٹط© ظƒط£ظˆظ„ظˆظٹط© (ط¨ظ†ط§ط،ظ‹ ط¹ظ„ظ‰ ط·ظ„ط¨ظƒ)
     settings["telegram_token"] = config._read_secret(config.TELEGRAM_TOKEN_FILE, env_key="TELEGRAM_TOKEN")
     settings["webhook_url"]    = config._read_secret(config.WEBHOOK_URL_FILE, env_key="WEBHOOK_URL")
 
     channels_list = [c.strip() for c in (settings["required_channels"] or "").split(",") if c.strip()]
     whitelist = database.get_all_whitelist()
     
-    # جلب الاستهلاك الفعلي لليوم
+    # ط¬ظ„ط¨ ط§ظ„ط§ط³طھظ‡ظ„ط§ظƒ ط§ظ„ظپط¹ظ„ظٹ ظ„ظ„ظٹظˆظ…
     usage_today = database.get_usage_today()
     
-    # تفاصيل الخطة المجانية لـ Firestore (Firebase Free Tier)
+    # طھظپط§طµظٹظ„ ط§ظ„ط®ط·ط© ط§ظ„ظ…ط¬ط§ظ†ظٹط© ظ„ظ€ Firestore (Firebase Free Tier)
     cloud_limits = {
         "reads_daily": "50,000",
         "writes_daily": "20,000",
@@ -131,17 +131,17 @@ def dashboard():
 @app.route("/errors/clear", methods=["POST"])
 def clear_errors():
     database.clear_errors()
-    flash("تم مسح سجل الأخطاء", "success")
+    flash("طھظ… ظ…ط³ط­ ط³ط¬ظ„ ط§ظ„ط£ط®ط·ط§ط،", "success")
     return redirect(url_for("dashboard") + "#errors-section")
 
 
-# ─── دوال مساعدة للبروكسيات ──────────────────────────────────────────────────
+# â”€â”€â”€ ط¯ظˆط§ظ„ ظ…ط³ط§ط¹ط¯ط© ظ„ظ„ط¨ط±ظˆظƒط³ظٹط§طھ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _PROXY_TEST_URL = "https://httpbin.org/ip"
 _PROXY_TIMEOUT  = 8
 
 
 def _check_single_proxy(proxy: str) -> bool:
-    """فحص بروكسي واحد - يُعيد True إذا كان يعمل."""
+    """ظپط­طµ ط¨ط±ظˆظƒط³ظٹ ظˆط§ط­ط¯ - ظٹظڈط¹ظٹط¯ True ط¥ط°ط§ ظƒط§ظ† ظٹط¹ظ…ظ„."""
     p = proxy.strip()
     if not p.startswith(("http://", "https://", "socks4://", "socks5://")):
         p = "http://" + p
@@ -157,7 +157,7 @@ def _check_single_proxy(proxy: str) -> bool:
 
 
 def _check_proxies_list(proxies: list[str], max_workers: int = 50) -> dict:
-    """فحص قائمة من البروكسيات وإعادة نتائجها."""
+    """ظپط­طµ ظ‚ط§ط¦ظ…ط© ظ…ظ† ط§ظ„ط¨ط±ظˆظƒط³ظٹط§طھ ظˆط¥ط¹ط§ط¯ط© ظ†طھط§ط¦ط¬ظ‡ط§."""
     working, dead = [], []
     with ThreadPoolExecutor(max_workers=min(max_workers, len(proxies) or 1)) as pool:
         future_to_proxy = {pool.submit(_check_single_proxy, p): p for p in proxies}
@@ -170,20 +170,20 @@ def _check_proxies_list(proxies: list[str], max_workers: int = 50) -> dict:
     return {"working": working, "dead": dead}
 
 
-# ─── مسارات البروكسيات ───────────────────────────────────────────────────────
+# â”€â”€â”€ ظ…ط³ط§ط±ط§طھ ط§ظ„ط¨ط±ظˆظƒط³ظٹط§طھ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @app.route("/proxies/list")
 def proxies_list():
-    """إعادة القائمة الحالية من قاعدة البيانات."""
+    """ط¥ط¹ط§ط¯ط© ط§ظ„ظ‚ط§ط¦ظ…ط© ط§ظ„ط­ط§ظ„ظٹط© ظ…ظ† ظ‚ط§ط¹ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ."""
     proxies = database.get_proxies()
     return jsonify({"proxies": proxies, "count": len(proxies)})
 
 
 @app.route("/proxies/check_current", methods=["POST"])
 def proxies_check_current():
-    """فحص البروكسيات الحالية وإزالة الميتة منها."""
+    """ظپط­طµ ط§ظ„ط¨ط±ظˆظƒط³ظٹط§طھ ط§ظ„ط­ط§ظ„ظٹط© ظˆط¥ط²ط§ظ„ط© ط§ظ„ظ…ظٹطھط© ظ…ظ†ظ‡ط§."""
     current = database.get_proxies()
     if not current:
-        return jsonify({"ok": False, "msg": "القائمة فارغة"})
+        return jsonify({"ok": False, "msg": "ط§ظ„ظ‚ط§ط¦ظ…ط© ظپط§ط±ط؛ط©"})
     results = _check_proxies_list(current)
     database.set_proxies(results["working"])
     return jsonify({
@@ -197,14 +197,14 @@ def proxies_check_current():
 
 @app.route("/proxies/add_and_check", methods=["POST"])
 def proxies_add_and_check():
-    """استقبال قائمة بروكسيات جديدة، فحصها، ثم دمج الشاغلة مع الموجودة."""
+    """ط§ط³طھظ‚ط¨ط§ظ„ ظ‚ط§ط¦ظ…ط© ط¨ط±ظˆظƒط³ظٹط§طھ ط¬ط¯ظٹط¯ط©طŒ ظپط­طµظ‡ط§طŒ ط«ظ… ط¯ظ…ط¬ ط§ظ„ط´ط§ط؛ظ„ط© ظ…ط¹ ط§ظ„ظ…ظˆط¬ظˆط¯ط©."""
     raw = request.form.get("new_proxies", "").strip()
     if not raw:
-        return jsonify({"ok": False, "msg": "لم تُرسَل أي بروكسيات"})
+        return jsonify({"ok": False, "msg": "ظ„ظ… طھظڈط±ط³ظژظ„ ط£ظٹ ط¨ط±ظˆظƒط³ظٹط§طھ"})
 
     new_candidates = [l.strip() for l in raw.splitlines() if l.strip() and not l.startswith("#")]
     if not new_candidates:
-        return jsonify({"ok": False, "msg": "لا توجد بروكسيات صالحة في النص"})
+        return jsonify({"ok": False, "msg": "ظ„ط§ طھظˆط¬ط¯ ط¨ط±ظˆظƒط³ظٹط§طھ طµط§ظ„ط­ط© ظپظٹ ط§ظ„ظ†طµ"})
 
     results  = _check_proxies_list(new_candidates)
     current  = database.get_proxies()
@@ -224,9 +224,9 @@ def proxies_add_and_check():
 
 @app.route("/proxies/clear", methods=["POST"])
 def proxies_clear():
-    """مسح كل البروكسيات."""
+    """ظ…ط³ط­ ظƒظ„ ط§ظ„ط¨ط±ظˆظƒط³ظٹط§طھ."""
     database.set_proxies([])
-    return jsonify({"ok": True, "msg": "تم مسح قائمة البروكسيات"})
+    return jsonify({"ok": True, "msg": "طھظ… ظ…ط³ط­ ظ‚ط§ط¦ظ…ط© ط§ظ„ط¨ط±ظˆظƒط³ظٹط§طھ"})
 
 
 
@@ -250,7 +250,7 @@ def send_message(user_id: int):
             await bot_app.bot.send_message(chat_id=user_id, text=message)
             database.log_message(user_id, "bot", message)
         except Exception as exc:
-            logger.error("فشل إرسال الرسالة إلى %s: %s", user_id, exc)
+            logger.error("ظپط´ظ„ ط¥ط±ط³ط§ظ„ ط§ظ„ط±ط³ط§ظ„ط© ط¥ظ„ظ‰ %s: %s", user_id, exc)
 
     if bot_loop:
         asyncio.run_coroutine_threadsafe(_send(), bot_loop)
@@ -262,43 +262,43 @@ def send_private():
     user_id = request.form.get("user_id")
     message = request.form.get("message", "").strip()
     if not user_id or not message:
-        flash("المعرف أو الرسالة فارغة", "error")
+        flash("ط§ظ„ظ…ط¹ط±ظپ ط£ظˆ ط§ظ„ط±ط³ط§ظ„ط© ظپط§ط±ط؛ط©", "error")
         return redirect(url_for("dashboard"))
 
     async def _send():
         try:
             await bot_app.bot.send_message(
                 chat_id=user_id,
-                text=f"📩 <b>رسالة خاصة:</b>\n\n{message}",
+                text=f"ًں“© <b>ط±ط³ط§ظ„ط© ط®ط§طµط©:</b>\n\n{message}",
                 parse_mode="HTML",
             )
         except Exception as exc:
-            logger.error("فشل إرسال رسالة خاصة إلى %s: %s", user_id, exc)
+            logger.error("ظپط´ظ„ ط¥ط±ط³ط§ظ„ ط±ط³ط§ظ„ط© ط®ط§طµط© ط¥ظ„ظ‰ %s: %s", user_id, exc)
 
     if bot_loop:
         asyncio.run_coroutine_threadsafe(_send(), bot_loop)
-        flash(f"تم إرسال الرسالة إلى {user_id}", "success")
+        flash(f"طھظ… ط¥ط±ط³ط§ظ„ ط§ظ„ط±ط³ط§ظ„ط© ط¥ظ„ظ‰ {user_id}", "success")
     else:
-        flash("البوت غير متصل", "error")
+        flash("ط§ظ„ط¨ظˆطھ ط؛ظٹط± ظ…طھطµظ„", "error")
     return redirect(url_for("dashboard"))
 
 
 @app.route("/ban_user/<int:user_id>", methods=["POST"])
 def ban_user(user_id: int):
     database.ban_user(user_id, True)
-    flash(f"تم حظر المستخدم {user_id}", "error")
+    flash(f"طھظ… ط­ط¸ط± ط§ظ„ظ…ط³طھط®ط¯ظ… {user_id}", "error")
     return redirect(url_for("dashboard"))
 
 
 @app.route("/api/save_settings", methods=["POST"])
 def api_save_settings():
-    """حفظ الإعدادات العامة للبوت في الملفات النصية و Firestore."""
+    """ط­ظپط¸ ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ ط§ظ„ط¹ط§ظ…ط© ظ„ظ„ط¨ظˆطھ ظپظٹ ط§ظ„ظ…ظ„ظپط§طھ ط§ظ„ظ†طµظٹط© ظˆ Firestore."""
     try:
         data = request.json
         if not data:
             return jsonify({"success": False, "error": "No data"}), 400
 
-        # قائمة المفاتيح المسموح بتحديثها
+        # ظ‚ط§ط¦ظ…ط© ط§ظ„ظ…ظپط§طھظٹط­ ط§ظ„ظ…ط³ظ…ظˆط­ ط¨طھط­ط¯ظٹط«ظ‡ط§
         allowed_keys = [
             "welcome_msg", "help_msg", "msg_analyzing", "msg_routing",
             "msg_complete", "msg_error", "msg_banned", "msg_caption",
@@ -309,19 +309,19 @@ def api_save_settings():
         token_changed = False
         for key, val in data.items():
             if key in allowed_keys:
-                # 1. الحفظ في قاعدة البيانات (لضمان المزامنة)
+                # 1. ط§ظ„ط­ظپط¸ ظپظٹ ظ‚ط§ط¹ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ (ظ„ط¶ظ…ط§ظ† ط§ظ„ظ…ط²ط§ظ…ظ†ط©)
                 database.set_setting(key, str(val))
                 
-                # 2. الحفظ في ملفات نصية (بناءً على طلب المستخدم)
+                # 2. ط§ظ„ط­ظپط¸ ظپظٹ ظ…ظ„ظپط§طھ ظ†طµظٹط© (ط¨ظ†ط§ط،ظ‹ ط¹ظ„ظ‰ ط·ظ„ط¨ ط§ظ„ظ…ط³طھط®ط¯ظ…)
                 if key == "telegram_token":
                     config._write_secret(config.TELEGRAM_TOKEN_FILE, str(val))
                     token_changed = True
                 elif key == "webhook_url":
                     config._write_secret(config.WEBHOOK_URL_FILE, str(val))
 
-        # 3. تفعيل "إعادة التشغيل السريع" إذا تغير التوكن
+        # 3. طھظپط¹ظٹظ„ "ط¥ط¹ط§ط¯ط© ط§ظ„طھط´ط؛ظٹظ„ ط§ظ„ط³ط±ظٹط¹" ط¥ط°ط§ طھط؛ظٹط± ط§ظ„طھظˆظƒظ†
         if token_changed and hasattr(app, 'trigger_bot_restart'):
-            logger.info("⚡ Token changed! Signaling hot reload...")
+            logger.info("âڑ، Token changed! Signaling hot reload...")
             app.trigger_bot_restart()
 
         return jsonify({"success": True})
@@ -330,7 +330,7 @@ def api_save_settings():
         return jsonify({"success": False, "error": str(e)}), 500
 @app.route("/api/activate_webhook", methods=["POST"])
 def api_activate_webhook():
-    """تفعيل الويب-هوك من تليجرام باستخدام التوكن والويب-هوك المخزن."""
+    """طھظپط¹ظٹظ„ ط§ظ„ظˆظٹط¨-ظ‡ظˆظƒ ظ…ظ† طھظ„ظٹط¬ط±ط§ظ… ط¨ط§ط³طھط®ط¯ط§ظ… ط§ظ„طھظˆظƒظ† ظˆط§ظ„ظˆظٹط¨-ظ‡ظˆظƒ ط§ظ„ظ…ط®ط²ظ†."""
     try:
         token = database.get_setting("telegram_token", config.TELEGRAM_TOKEN)
         url   = database.get_setting("webhook_url", config.WEBHOOK_URL)
@@ -338,7 +338,7 @@ def api_activate_webhook():
         if not token or not url:
             return jsonify({"success": False, "error": "Token or Webhook URL missing"}), 400
 
-        # تنظيف الرابط لضمان عدم التكرار (نفس منطق main.py)
+        # طھظ†ط¸ظٹظپ ط§ظ„ط±ط§ط¨ط· ظ„ط¶ظ…ط§ظ† ط¹ط¯ظ… ط§ظ„طھظƒط±ط§ط± (ظ†ظپط³ ظ…ظ†ط·ظ‚ main.py)
         base_url = url.strip().rstrip("/")
         if base_url.endswith("/webhook"):
             base_url = base_url[:-8].rstrip("/")
@@ -360,7 +360,7 @@ def api_activate_webhook():
 @app.route("/unban_user/<int:user_id>", methods=["POST"])
 def unban_user(user_id: int):
     database.ban_user(user_id, False)
-    flash(f"تم رفع الحظر عن {user_id}", "success")
+    flash(f"طھظ… ط±ظپط¹ ط§ظ„ط­ط¸ط± ط¹ظ† {user_id}", "success")
     return redirect(url_for("dashboard"))
 
 
@@ -374,7 +374,7 @@ def update_settings():
         value = request.form.get(key)
         if value is not None:
             database.set_setting(key, value)
-    flash("تم تحديث الإعدادات بنجاح!", "success")
+    flash("طھظ… طھط­ط¯ظٹط« ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ ط¨ظ†ط¬ط§ط­!", "success")
     return redirect(url_for("dashboard"))
 
 
@@ -382,17 +382,17 @@ def update_settings():
 def add_channel():
     new_channel = request.form.get("channel_name", "").strip()
     if not new_channel:
-        flash("الرجاء إدخال معرف القناة", "error")
+        flash("ط§ظ„ط±ط¬ط§ط، ط¥ط¯ط®ط§ظ„ ظ…ط¹ط±ظپ ط§ظ„ظ‚ظ†ط§ط©", "error")
         return redirect(url_for("dashboard"))
     if not new_channel.startswith("@"):
         new_channel = "@" + new_channel
     current_list = [c.strip() for c in database.get_setting("required_channels", "").split(",") if c.strip()]
     if new_channel in current_list:
-        flash("القناة موجودة بالفعل", "error")
+        flash("ط§ظ„ظ‚ظ†ط§ط© ظ…ظˆط¬ظˆط¯ط© ط¨ط§ظ„ظپط¹ظ„", "error")
     else:
         current_list.append(new_channel)
         database.set_setting("required_channels", ",".join(current_list))
-        flash(f"تم إضافة القناة {new_channel}", "success")
+        flash(f"طھظ… ط¥ط¶ط§ظپط© ط§ظ„ظ‚ظ†ط§ط© {new_channel}", "success")
     return redirect(url_for("dashboard"))
 
 
@@ -403,9 +403,9 @@ def delete_channel():
     if channel in current_list:
         current_list.remove(channel)
         database.set_setting("required_channels", ",".join(current_list))
-        flash(f"تم حذف القناة {channel}", "success")
+        flash(f"طھظ… ط­ط°ظپ ط§ظ„ظ‚ظ†ط§ط© {channel}", "success")
     else:
-        flash("القناة غير موجودة", "error")
+        flash("ط§ظ„ظ‚ظ†ط§ط© ط؛ظٹط± ظ…ظˆط¬ظˆط¯ط©", "error")
     return redirect(url_for("dashboard"))
 
 
@@ -414,14 +414,14 @@ def broadcast():
     message = request.form.get("message", "").strip()
     title   = request.form.get("title", "").strip()
     if not message:
-        flash("الرسالة فارغة", "error")
+        flash("ط§ظ„ط±ط³ط§ظ„ط© ظپط§ط±ط؛ط©", "error")
         return redirect(url_for("dashboard"))
 
     users = database.get_all_users()
 
     async def _send_all():
         count = 0
-        header = f"📢 <b>{title}</b>\n\n" if title else "📢 <b>تنبيه عام:</b>\n\n"
+        header = f"ًں“¢ <b>{title}</b>\n\n" if title else "ًں“¢ <b>طھظ†ط¨ظٹظ‡ ط¹ط§ظ…:</b>\n\n"
         for user in users:
             try:
                 await bot_app.bot.send_message(
@@ -432,34 +432,34 @@ def broadcast():
                 count += 1
             except Exception:
                 pass
-        logger.info("تم إرسال البث إلى %d مستخدم", count)
+        logger.info("طھظ… ط¥ط±ط³ط§ظ„ ط§ظ„ط¨ط« ط¥ظ„ظ‰ %d ظ…ط³طھط®ط¯ظ…", count)
 
     if bot_loop:
         asyncio.run_coroutine_threadsafe(_send_all(), bot_loop)
-        flash("تم جدولة الإرسال للجميع", "success")
+        flash("طھظ… ط¬ط¯ظˆظ„ط© ط§ظ„ط¥ط±ط³ط§ظ„ ظ„ظ„ط¬ظ…ظٹط¹", "success")
     else:
-        flash("البوت غير متصل", "error")
+        flash("ط§ظ„ط¨ظˆطھ ط؛ظٹط± ظ…طھطµظ„", "error")
     return redirect(url_for("dashboard"))
 @app.route("/whitelist/add", methods=["POST"])
 def add_to_whitelist():
     user_id      = request.form.get("user_id", "").strip()
     custom_reply = request.form.get("custom_reply", "").strip()
     if not user_id:
-        flash("الرجاء إدخال معرف المستخدم", "error")
+        flash("ط§ظ„ط±ط¬ط§ط، ط¥ط¯ط®ط§ظ„ ظ…ط¹ط±ظپ ط§ظ„ظ…ط³طھط®ط¯ظ…", "error")
         return redirect(url_for("dashboard") + "#whitelist-section")
     
     try:
         database.add_to_whitelist(int(user_id), custom_reply)
-        flash(f"تم إضافة {user_id} للقائمة البيضاء", "success")
+        flash(f"طھظ… ط¥ط¶ط§ظپط© {user_id} ظ„ظ„ظ‚ط§ط¦ظ…ط© ط§ظ„ط¨ظٹط¶ط§ط،", "success")
     except ValueError:
-        flash("معرف المستخدم يجب أن يكون رقماً", "error")
+        flash("ظ…ط¹ط±ظپ ط§ظ„ظ…ط³طھط®ط¯ظ… ظٹط¬ط¨ ط£ظ† ظٹظƒظˆظ† ط±ظ‚ظ…ط§ظ‹", "error")
     
     return redirect(url_for("dashboard") + "#whitelist-section")
 
 
 @app.route("/api/server_specs")
 def api_server_specs():
-    """إرجاع مواصفات الخادم (رام وتخزين)."""
+    """ط¥ط±ط¬ط§ط¹ ظ…ظˆط§طµظپط§طھ ط§ظ„ط®ط§ط¯ظ… (ط±ط§ظ… ظˆطھط®ط²ظٹظ†)."""
     if not server_utils:
         return jsonify({"ram": "N/A", "storage": "N/A"})
     return jsonify(server_utils.get_server_specs())
@@ -467,197 +467,9 @@ def api_server_specs():
 
 @app.route("/api/speed_test", methods=["POST"])
 def api_speed_test():
-    """تشغيل اختبار سرعة الإنترنت وإرجاع النتائج."""
+    """طھط´ط؛ظٹظ„ ط§ط®طھط¨ط§ط± ط³ط±ط¹ط© ط§ظ„ط¥ظ†طھط±ظ†طھ ظˆط¥ط±ط¬ط§ط¹ ط§ظ„ظ†طھط§ط¦ط¬."""
     if not server_utils:
         return jsonify({"download": "N/A", "upload": "N/A"})
     return jsonify(server_utils.get_internet_speed())
 
-
-# ─── مسارات إدارة كوكيز إنستغرام ──────────────────────────────────────────────
-
-def _write_cookie_file(cookies_list: list) -> None:
-    """كتابة الكوكيز النشطة بتنسيق Netscape في ملفات الإعدادات للبوت."""
-    import urllib.parse
-    lines = ["# Netscape HTTP Cookie File", "# Generated from dashboard active account", ""]
-    for c in cookies_list:
-        domain = c.get("domain", ".instagram.com")
-        include_subdomains = "TRUE" if domain.startswith(".") else "FALSE"
-        path   = c.get("path", "/")
-        secure = "TRUE" if c.get("secure") else "FALSE"
-        expiry = int(c.get("expirationDate", 0))
-        name   = c["name"]
-        value  = urllib.parse.unquote(c["value"])
-        
-        line = f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expiry}\t{name}\t{value}"
-        lines.append(line)
-        
-    content = "\n".join(lines) + "\n"
-    
-    # 1. الكتابة في مسار config الرئيسي
-    os.makedirs(os.path.dirname(config.INSTAGRAM_COOKIES), exist_ok=True)
-    with open(config.INSTAGRAM_COOKIES, "w", encoding="utf-8", newline="\n") as f:
-        f.write(content)
-        
-    # 2. الكتابة في مسار secrets كاحتياط
-    secrets_path = os.path.join(config.SECRETS_DIR, "instagram_cookies.txt")
-    os.makedirs(os.path.dirname(secrets_path), exist_ok=True)
-    with open(secrets_path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(content)
-    logger.info("🍪 Netscape cookies file updated successfully.")
-
-
-def _verify_single_ig_cookie(cookies_list: list) -> tuple[str, str]:
-    """فحص صلاحية الكوكيز عبر استدعاء API إنستغرام. يُرجع (username, status)."""
-    try:
-        cookies_dict = {}
-        for c in cookies_list:
-            cookies_dict[c["name"]] = urllib.parse.unquote(c["value"])
-            
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            "Accept": "*/*",
-            "X-IG-App-ID": "936619743392459",
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-        
-        url_check = "https://www.instagram.com/api/v1/accounts/edit/web_current_user/"
-        r = http_requests.get(url_check, cookies=cookies_dict, headers=headers, timeout=10)
-        
-        if r.status_code == 200:
-            data = r.json()
-            username = data.get("form_data", {}).get("username")
-            if not username:
-                username = cookies_dict.get("ds_user_id", "unknown_user")
-            return username, "working"
-        else:
-            username = cookies_dict.get("ds_user_id", "unknown_user")
-            return username, "expired"
-    except Exception as e:
-        logger.error(f"Error verifying IG cookie: {e}")
-        # إذا تعذر الاتصال، نستخدم ds_user_id أو اسم افتراضي مع حفظ الحالة كـ expired
-        return "unknown", "expired"
-
-
-@app.route("/ig_cookies/list")
-def ig_cookies_list():
-    """إرجاع قائمة حسابات الكوكيز المضافة."""
-    cookies = database.get_ig_cookies()
-    # تنظيف مخرج الـ JSON لعدم إرسال الكوكيز الكاملة للمتصفح لدواعي الأمن (نرسل فقط معلومات الحساب)
-    cleaned = []
-    for c in cookies:
-        cleaned.append({
-            "username": c.get("username", "unknown"),
-            "status": c.get("status", "expired"),
-            "is_active": c.get("is_active", False),
-            "last_checked": c.get("last_checked", "")
-        })
-    return jsonify({"cookies": cleaned, "count": len(cleaned)})
-
-
-@app.route("/ig_cookies/add", methods=["POST"])
-def ig_cookies_add():
-    """إضافة كوكيز حساب جديد وفحصه."""
-    import json
-    raw_json = request.form.get("cookies_json", "").strip()
-    if not raw_json:
-        return jsonify({"ok": False, "msg": "الرجاء لصق كود الكوكيز (JSON)"})
-        
-    try:
-        cookies_list = json.loads(raw_json)
-        if not isinstance(cookies_list, list):
-             return jsonify({"ok": False, "msg": "تنسيق JSON غير صالح. يجب أن يكون قائمة من الكوكيز."})
-    except Exception as e:
-        return jsonify({"ok": False, "msg": f"خطأ في تحليل JSON: {e}"})
-        
-    # فحص الكوكيز
-    username, status = _verify_single_ig_cookie(cookies_list)
-    
-    # إذا كانت القائمة فارغة حالياً، نجعل هذا الحساب نشطاً تلقائياً
-    current = database.get_ig_cookies()
-    make_active = (len(current) == 0 or status == "working")
-    
-    # حفظ في قاعدة البيانات
-    database.add_ig_cookie(username, cookies_list, status=status, is_active=make_active)
-    
-    # إذا تم تنشيطه، حدّث الملف الفعلي
-    if make_active:
-        _write_cookie_file(cookies_list)
-        
-    return jsonify({
-        "ok": True,
-        "username": username,
-        "status": status,
-        "is_active": make_active,
-        "msg": f"تمت إضافة الحساب @{username} بنجاح. حالة الحساب: {status}"
-    })
-
-
-@app.route("/ig_cookies/activate", methods=["POST"])
-def ig_cookies_activate():
-    """تفعيل حساب كوكيز معين."""
-    username = request.form.get("username", "").strip()
-    if not username:
-        return jsonify({"ok": False, "msg": "اسم المستخدم مطلوب"})
-        
-    cookies = database.get_ig_cookies()
-    target = None
-    for c in cookies:
-        if c.get("username") == username:
-            target = c
-            break
-            
-    if not target:
-        return jsonify({"ok": False, "msg": "الحساب غير موجود"})
-        
-    # تعيين كنشط في قاعدة البيانات
-    database.set_active_ig_cookie(username)
-    
-    # كتابة الملف
-    _write_cookie_file(target["cookies"])
-    
-    return jsonify({"ok": True, "msg": f"تم تفعيل الحساب @{username} كحساب رئيسي للبوت"})
-
-
-@app.route("/ig_cookies/delete", methods=["POST"])
-def ig_cookies_delete():
-    """حذف حساب كوكيز."""
-    username = request.form.get("username", "").strip()
-    if not username:
-        return jsonify({"ok": False, "msg": "اسم المستخدم مطلوب"})
-        
-    database.delete_ig_cookie(username)
-    return jsonify({"ok": True, "msg": f"تم حذف الحساب @{username} بنجاح"})
-
-
-@app.route("/ig_cookies/check_all", methods=["POST"])
-def ig_cookies_check_all():
-    """فحص وتحديث حالة جميع حسابات الكوكيز المضافة."""
-    cookies = database.get_ig_cookies()
-    if not cookies:
-        return jsonify({"ok": False, "msg": "لا توجد حسابات لفحصها"})
-        
-    checked = 0
-    working = 0
-    expired = 0
-    
-    for c in cookies:
-        username = c.get("username")
-        cookies_list = c.get("cookies", [])
-        if username and cookies_list:
-            _, status = _verify_single_ig_cookie(cookies_list)
-            database.update_ig_cookie_status(username, status)
-            checked += 1
-            if status == "working":
-                working += 1
-            else:
-                expired += 1
-                
-    return jsonify({
-        "ok": True,
-        "checked": checked,
-        "working": working,
-        "expired": expired,
-        "msg": f"تم فحص {checked} حساب. النشطة: {working}، المنتهية: {expired}"
-    })
 
