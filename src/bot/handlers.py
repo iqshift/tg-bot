@@ -176,16 +176,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if not await _check_subscriptions(update, context, user.id, chat_id):
                 return
 
-        # التحقق من أن النص هو رابط فعلي، وإلا التحقق من كونه اسم مستخدم إنستغرام
+        # التحقق من أن النص هو رابط فعلي، وإلا التحقق من كونه اسم مستخدم (مع دعم النقطة والشرطة السفلية)
         if not url.startswith(("http://", "https://")):
             import re
+            # يدعم الأسماء التي تحتوي على حروف وأرقام ونقطة وشرطة سفلية (كـ user.name)
             username_match = re.match(r"^@?([a-zA-Z0-9._]{1,30})$", url)
             if username_match:
                 username = username_match.group(1)
-                await handle_instagram_stories(update, context, username)
+                # عرض اختيار المنصة (إنستغرام أو تيك توك)
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                ig_cb = f"plat:ig:{username}"[:64]
+                tt_cb = f"plat:tt:{username}"[:64]
+                keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton(text="📸 إنستغرام", callback_data=ig_cb),
+                    InlineKeyboardButton(text="🎵 تيك توك",  callback_data=tt_cb),
+                ]])
+                await update.message.reply_text(
+                    f"👤 اختر المنصة لعرض قصص @{username}:",
+                    reply_markup=keyboard,
+                )
                 return
             else:
-                msg = "⚠️ يرجى إرسال رابط فيديو صحيح من Instagram أو Facebook أو TikTok، أو إرسال اسم مستخدم إنستغرام يبدأ بـ @ لتحميل القصص."
+                msg = "⚠️ يرجى إرسال رابط فيديو صحيح من Instagram أو Facebook أو TikTok، أو إرسال اسم مستخدم (يبدأ بـ @) لتحميل القصص."
                 await update.message.reply_text(msg)
                 return
 
@@ -394,11 +406,106 @@ async def handle_instagram_stories(update: Update, context: ContextTypes.DEFAULT
         await status_msg.edit_text(msg_stories_err)
 
 
+# ─── دوال مساعدة لعرض القصص/المقاطع من Callback ──────────────────────────────
+async def _handle_ig_stories_from_callback(
+    query, context: ContextTypes.DEFAULT_TYPE,
+    username: str, chat_id: int, user_id: int
+) -> None:
+    """عرض قصص إنستغرام النشطة بعد اختيار المنصة من Callback."""
+    status_msg = await query.message.reply_text(
+        f"🔍 جاري البحث عن قصص نشطة للحساب @{username}..."
+    )
+    try:
+        loop = asyncio.get_running_loop()
+        stories = await loop.run_in_executor(EXECUTOR, _insta.get_active_stories, username)
+
+        if not stories:
+            await status_msg.edit_text(
+                f"📭 لا توجد قصص نشطة للحساب @{username} حالياً، أو أن الحساب خاص."
+            )
+            return
+
+        context.user_data[f"stories_{username}"] = stories
+
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = []
+        for i, s in enumerate(stories[:15]):
+            type_str = "📹 فيديو" if s["is_video"] else "🖼️ صورة"
+            time_str = s["date"].split(" ")[1][:5]
+            btn_text  = f"القصة {i+1} ({type_str}) - {time_str}"
+            keyboard.append([InlineKeyboardButton(text=btn_text, callback_data=f"st:{username}:{i}")])
+        keyboard.append([InlineKeyboardButton(text="📥 تحميل كل القصص", callback_data=f"stall:{username}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await status_msg.edit_text(
+            f"📸 تم العثور على {len(stories)} قصة نشطة لحساب @{username}.\n"
+            "اختر القصة التي تريد تحميلها أو قم بتحميل الكل:",
+            reply_markup=reply_markup,
+        )
+    except ValueError as ve:
+        await status_msg.edit_text(f"⚠️ {str(ve)}")
+    except Exception as e:
+        logger.error("Error in _handle_ig_stories_from_callback: %s", e)
+        database.log_error(user_id=user_id, platform="Instagram Stories", url=f"@{username}", error_msg=str(e))
+        msg_err = database.get_setting(
+            "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
+        )
+        await status_msg.edit_text(msg_err)
+
+
+async def _handle_tt_videos_from_callback(
+    query, context: ContextTypes.DEFAULT_TYPE,
+    username: str, chat_id: int, user_id: int
+) -> None:
+    """عرض أحدث مقاطع فيديو مستخدم تيك توك بعد اختيار المنصة."""
+    status_msg = await query.message.reply_text(
+        f"🔍 جاري جلب أحدث مقاطع الحساب @{username} على تيك توك..."
+    )
+    try:
+        loop = asyncio.get_running_loop()
+        videos = await loop.run_in_executor(EXECUTOR, _tiktok.get_user_videos, username)
+
+        if not videos:
+            await status_msg.edit_text(
+                f"📭 لا توجد مقاطع متاحة للحساب @{username} حالياً."
+            )
+            return
+
+        context.user_data[f"tt_videos_{username}"] = videos
+
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = []
+        for i, v in enumerate(videos[:10]):
+            title    = (v.get("title") or "بدون عنوان")[:22]
+            duration = v.get("duration", 0)
+            dur_str  = f" ({duration}s)" if duration else ""
+            btn_text = f"🎵 {i+1}. {title}{dur_str}"[:40]
+            cb_data  = f"ttv:{username}:{i}"[:64]   # callback_data max 64 bytes
+            keyboard.append([InlineKeyboardButton(text=btn_text, callback_data=cb_data)])
+        keyboard.append([InlineKeyboardButton(
+            text="📥 تحميل الكل", callback_data=f"ttvall:{username}"[:64]
+        )])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await status_msg.edit_text(
+            f"🎵 تم العثور على {len(videos)} مقطع للحساب @{username}.\n"
+            "اختر المقطع الذي تريد تحميله أو حمّل الكل:",
+            reply_markup=reply_markup,
+        )
+    except ValueError as ve:
+        await status_msg.edit_text(f"⚠️ {str(ve)}")
+    except Exception as e:
+        logger.error("Error in _handle_tt_videos_from_callback: %s", e)
+        database.log_error(user_id=user_id, platform="TikTok User Videos", url=f"@{username}", error_msg=str(e))
+        msg_err = database.get_setting(
+            "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
+        )
+        await status_msg.edit_text(msg_err)
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
+    query   = update.callback_query
     await query.answer()
-    
-    data = query.data
+
+    data    = query.data
     chat_id = query.message.chat_id
     user_id = query.from_user.id
 
@@ -407,93 +514,206 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if db_user and db_user["is_banned"]:
         return
 
-    # التحقق من نوع الحدث
-    if data.startswith("st:"):
-        # تحميل قصة فردية
-        _, username, index_str = data.split(":")
-        index = int(index_str)
-        
+    # ── اختيار المنصة (إنستغرام / تيك توك) ─────────────────────────────────
+    if data.startswith("plat:"):
+        parts    = data.split(":", 2)
+        platform = parts[1] if len(parts) > 1 else ""
+        username = parts[2] if len(parts) > 2 else ""
+        if not username:
+            return
+        if platform == "ig":
+            await _handle_ig_stories_from_callback(query, context, username, chat_id, user_id)
+        elif platform == "tt":
+            await _handle_tt_videos_from_callback(query, context, username, chat_id, user_id)
+
+    # ── تحميل قصة إنستغرام فردية ────────────────────────────────────────────
+    elif data.startswith("st:"):
+        parts    = data.split(":")
+        username = parts[1]
+        index    = int(parts[2])
+
         stories = context.user_data.get(f"stories_{username}")
         if not stories or index >= len(stories):
-            await query.edit_message_text("❌ انتهت صلاحية هذه القائمة. يرجى إرسال اسم المستخدم مرة أخرى.")
+            await query.edit_message_text("❌ انتهت صلاحية القائمة. يرجى إرسال اسم المستخدم مجدداً.")
             return
-            
-        story = stories[index]
+
+        story      = stories[index]
         status_msg = await query.message.reply_text("📥 جاري تحميل القصة...")
-        
         try:
-            loop = asyncio.get_running_loop()
+            loop      = asyncio.get_running_loop()
             file_path = await loop.run_in_executor(
                 EXECUTOR, _insta.download_story_url, story["url"], story["is_video"]
             )
-            
             await status_msg.edit_text("📤 جاري الرفع إلى تليجرام...")
-            
             caption = f"👤 الحساب: @{username}\n📅 التاريخ: {story['date']}"
             if story["is_video"]:
                 with open(file_path, "rb") as f:
-                    await context.bot.send_video(chat_id=chat_id, video=f, caption=caption, reply_to_message_id=query.message.message_id)
+                    await context.bot.send_video(
+                        chat_id=chat_id, video=f, caption=caption,
+                        reply_to_message_id=query.message.message_id
+                    )
             else:
                 with open(file_path, "rb") as f:
-                    await context.bot.send_photo(chat_id=chat_id, photo=f, caption=caption, reply_to_message_id=query.message.message_id)
-            
+                    await context.bot.send_photo(
+                        chat_id=chat_id, photo=f, caption=caption,
+                        reply_to_message_id=query.message.message_id
+                    )
             await status_msg.delete()
-            # تنظيف
             _insta.cleanup(file_path)
         except Exception as e:
             logger.error("Error downloading story: %s", e)
-            database.log_error(user_id=user_id, platform="Instagram Stories", url=f"@{username} (single)", error_msg=str(e))
-            msg_stories_err = database.get_setting("msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌")
-            await status_msg.edit_text(msg_stories_err)
+            database.log_error(user_id=user_id, platform="Instagram Stories",
+                               url=f"@{username} (single)", error_msg=str(e))
+            msg_err = database.get_setting(
+                "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
+            )
+            await status_msg.edit_text(msg_err)
 
+    # ── تحميل جميع قصص إنستغرام ─────────────────────────────────────────────
     elif data.startswith("stall:"):
-        # تحميل جميع القصص
-        _, username = data.split(":")
-        stories = context.user_data.get(f"stories_{username}")
+        _, username = data.split(":", 1)
+        stories     = context.user_data.get(f"stories_{username}")
         if not stories:
-            await query.edit_message_text("❌ انتهت صلاحية هذه القائمة. يرجى إرسال اسم المستخدم مرة أخرى.")
+            await query.edit_message_text("❌ انتهت صلاحية القائمة. يرجى إرسال اسم المستخدم مجدداً.")
             return
 
-        status_msg = await query.message.reply_text(f"📥 جاري تحميل {len(stories)} قصة... قد يستغرق هذا بعض الوقت.")
-        
+        status_msg = await query.message.reply_text(
+            f"📥 جاري تحميل {len(stories)} قصة... قد يستغرق هذا بعض الوقت."
+        )
         try:
             downloaded_files = []
-            loop = asyncio.get_running_loop()
-            
-            tasks = []
-            for s in stories:
-                tasks.append(
-                    loop.run_in_executor(
-                        EXECUTOR, _insta.download_story_url, s["url"], s["is_video"]
-                    )
-                )
-            
+            loop             = asyncio.get_running_loop()
+            tasks            = [
+                loop.run_in_executor(EXECUTOR, _insta.download_story_url, s["url"], s["is_video"])
+                for s in stories
+            ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            
             await status_msg.edit_text("📤 جاري الرفع إلى تليجرام...")
-            
             for s, res in zip(stories, results):
                 if isinstance(res, Exception):
-                    logger.error("Error downloading one of the stories: %s", res)
+                    logger.error("Error downloading one story: %s", res)
                     continue
-                
                 downloaded_files.append(res)
                 caption = f"👤 الحساب: @{username}\n📅 التاريخ: {s['date']}"
-                
                 if s["is_video"]:
                     with open(res, "rb") as f:
                         await context.bot.send_video(chat_id=chat_id, video=f, caption=caption)
                 else:
                     with open(res, "rb") as f:
                         await context.bot.send_photo(chat_id=chat_id, photo=f, caption=caption)
-            
             await status_msg.delete()
-            # تنظيف
-            for f in downloaded_files:
-                _insta.cleanup(f)
-                
+            for fp in downloaded_files:
+                _insta.cleanup(fp)
         except Exception as e:
             logger.error("Error downloading all stories: %s", e)
-            database.log_error(user_id=user_id, platform="Instagram Stories", url=f"@{username} (all)", error_msg=str(e))
-            msg_stories_err = database.get_setting("msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌")
-            await status_msg.edit_text(msg_stories_err)
+            database.log_error(user_id=user_id, platform="Instagram Stories",
+                               url=f"@{username} (all)", error_msg=str(e))
+            msg_err = database.get_setting(
+                "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
+            )
+            await status_msg.edit_text(msg_err)
+
+    # ── تحميل مقطع تيك توك فردي ─────────────────────────────────────────────
+    elif data.startswith("ttv:"):
+        parts    = data.split(":")
+        username = parts[1]
+        index    = int(parts[2])
+
+        videos = context.user_data.get(f"tt_videos_{username}")
+        if not videos or index >= len(videos):
+            await query.edit_message_text("❌ انتهت صلاحية القائمة. يرجى إرسال اسم المستخدم مجدداً.")
+            return
+
+        video      = videos[index]
+        status_msg = await query.message.reply_text("📥 جاري تحميل المقطع...")
+        try:
+            loop        = asyncio.get_running_loop()
+            result_dict = await loop.run_in_executor(
+                EXECUTOR, _tiktok.download_video, video["play_url"]
+            )
+            file_path = result_dict.get("results")
+            if not file_path:
+                raise ValueError("لم يتم التحميل بنجاح")
+
+            await status_msg.edit_text("📤 جاري الرفع إلى تليجرام...")
+            caption = f"👤 @{username}\n📝 {video.get('title', '')}"
+
+            if isinstance(file_path, list):
+                from telegram import InputMediaPhoto, InputMediaVideo
+                media        = []
+                opened_files = []
+                try:
+                    for item in file_path[:10]:
+                        fh = open(item, "rb")
+                        opened_files.append(fh)
+                        if item.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                            media.append(InputMediaPhoto(media=fh, caption=caption if not media else ""))
+                        else:
+                            media.append(InputMediaVideo(media=fh, caption=caption if not media else ""))
+                    if media:
+                        await context.bot.send_media_group(chat_id=chat_id, media=media)
+                finally:
+                    for fh in opened_files:
+                        fh.close()
+            else:
+                with open(file_path, "rb") as fh:
+                    await context.bot.send_video(chat_id=chat_id, video=fh, caption=caption)
+
+            await status_msg.delete()
+            _tiktok.cleanup(file_path)
+        except Exception as e:
+            logger.error("Error downloading TikTok video: %s", e)
+            database.log_error(user_id=user_id, platform="TikTok User Videos",
+                               url=f"@{username}", error_msg=str(e))
+            msg_err = database.get_setting(
+                "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
+            )
+            await status_msg.edit_text(msg_err)
+
+    # ── تحميل جميع مقاطع تيك توك ────────────────────────────────────────────
+    elif data.startswith("ttvall:"):
+        _, username = data.split(":", 1)
+        videos      = context.user_data.get(f"tt_videos_{username}")
+        if not videos:
+            await query.edit_message_text("❌ انتهت صلاحية القائمة. يرجى إرسال اسم المستخدم مجدداً.")
+            return
+
+        status_msg = await query.message.reply_text(
+            f"📥 جاري تحميل {len(videos)} مقطع... قد يستغرق هذا بعض الوقت."
+        )
+        downloaded = []
+        for i, video in enumerate(videos):
+            try:
+                await status_msg.edit_text(f"📥 تحميل {i+1}/{len(videos)}...")
+                loop        = asyncio.get_running_loop()
+                result_dict = await loop.run_in_executor(
+                    EXECUTOR, _tiktok.download_video, video["play_url"]
+                )
+                file_path = result_dict.get("results")
+                if not file_path:
+                    continue
+                caption = f"👤 @{username}\n📝 {video.get('title', '')}"
+                if isinstance(file_path, list):
+                    for item in file_path:
+                        if item.lower().endswith((".mp4",)):
+                            with open(item, "rb") as fh:
+                                await context.bot.send_video(chat_id=chat_id, video=fh, caption=caption)
+                        else:
+                            with open(item, "rb") as fh:
+                                await context.bot.send_photo(chat_id=chat_id, photo=fh, caption=caption)
+                    _tiktok.cleanup(file_path)
+                else:
+                    with open(file_path, "rb") as fh:
+                        await context.bot.send_video(chat_id=chat_id, video=fh, caption=caption)
+                    _tiktok.cleanup(file_path)
+                downloaded.append(video)
+            except Exception as e:
+                logger.error("Error downloading TikTok video %d for @%s: %s", i, username, e)
+
+        if downloaded:
+            await status_msg.delete()
+        else:
+            msg_err = database.get_setting(
+                "msg_stories_error", "عذراً، حدث خطأ بسبب زخم المستخدمين. يرجى المحاولة لاحقاً ❌"
+            )
+            await status_msg.edit_text(msg_err)

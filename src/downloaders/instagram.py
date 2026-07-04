@@ -45,26 +45,86 @@ class InstagramDownloader(BaseDownloader):
             filename_pattern="{shortcode}"
         )
         
-        # تحميل ملف الكوكيز الخاص بإنستغرام لـ Instaloader إذا وجد
-        import http.cookiejar
-        if os.path.exists(config.INSTAGRAM_COOKIES):
-            try:
-                cj = http.cookiejar.MozillaCookieJar(config.INSTAGRAM_COOKIES)
-                cj.load(ignore_discard=True, ignore_expires=True)
-                self.L.context._session.cookies.update(cj)
-                logger.info("✅ Instaloader session loaded with cookies")
-                
-                # استخراج ds_user_id وتعيينه كاسم مستخدم السياق لـ Instaloader لإثبات تسجيل الدخول
-                ds_user_id = None
-                for cookie in cj:
-                    if cookie.name == "ds_user_id":
-                        ds_user_id = cookie.value
+        # تحميل الكوكيز النشطة الحالية
+        self._load_active_cookie()
+
+    def _write_cookie_file(self, cookies_list: list) -> None:
+        """تحويل الكوكيز النشطة وحفظها بتنسيق Netscape لـ yt-dlp و Instaloader."""
+        import urllib.parse
+        lines = ["# Netscape HTTP Cookie File", "# Generated dynamically during rotation", ""]
+        for c in cookies_list:
+            domain = c.get("domain", ".instagram.com")
+            include_subdomains = "TRUE" if domain.startswith(".") else "FALSE"
+            path   = c.get("path", "/")
+            secure = "TRUE" if c.get("secure") else "FALSE"
+            expiry = int(c.get("expirationDate", 0))
+            name   = c["name"]
+            value  = urllib.parse.unquote(c["value"])
+            
+            line = f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expiry}\t{name}\t{value}"
+            lines.append(line)
+            
+        content = "\n".join(lines) + "\n"
+        
+        os.makedirs(os.path.dirname(config.INSTAGRAM_COOKIES), exist_ok=True)
+        with open(config.INSTAGRAM_COOKIES, "w", encoding="utf-8", newline="\n") as f:
+            f.write(content)
+            
+        secrets_path = os.path.join(config.SECRETS_DIR, "instagram_cookies.txt")
+        os.makedirs(os.path.dirname(secrets_path), exist_ok=True)
+        with open(secrets_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(content)
+
+    def _load_active_cookie(self) -> bool:
+        """جلب الكوكيز النشطة من قاعدة البيانات وتحديث الجلسة الحالية لـ Instaloader."""
+        try:
+            cookies_list = database.get_ig_cookies()
+            if not cookies_list:
+                logger.warning("⚠️ No Instagram cookies found in database.")
+                return False
+            
+            # البحث عن الكوكيز النشطة، أو أول كوكيز شغال
+            active_cookie = None
+            for c in cookies_list:
+                if c.get("is_active"):
+                    active_cookie = c
+                    break
+            
+            if not active_cookie:
+                for c in cookies_list:
+                    if c.get("status") == "working":
+                        active_cookie = c
                         break
-                if ds_user_id:
-                    self.L.context.username = ds_user_id
-                    logger.info("✅ Mocked logged-in username in Instaloader context: %s", ds_user_id)
-            except Exception as e:
-                logger.warning("⚠️ Could not load Instagram cookies into Instaloader: %s", e)
+            
+            if not active_cookie:
+                logger.warning("⚠️ No working or active Instagram cookies found in DB.")
+                return False
+            
+            # كتابة الكوكيز النشطة في الملفات
+            self._write_cookie_file(active_cookie["cookies"])
+            
+            # تحديث جلسة Instaloader
+            import http.cookiejar
+            cj = http.cookiejar.MozillaCookieJar(config.INSTAGRAM_COOKIES)
+            cj.load(ignore_discard=True, ignore_expires=True)
+            
+            self.L.context._session.cookies.clear()
+            self.L.context._session.cookies.update(cj)
+            
+            # استخراج ds_user_id وتعيينه كاسم مستخدم السياق لـ Instaloader لإثبات تسجيل الدخول
+            ds_user_id = None
+            for cookie in cj:
+                if cookie.name == "ds_user_id":
+                    ds_user_id = cookie.value
+                    break
+            if ds_user_id:
+                self.L.context.username = ds_user_id
+            
+            logger.info("✅ Successfully loaded Instagram cookies for account: @%s", active_cookie.get("username"))
+            return True
+        except Exception as e:
+            logger.error("⚠️ Error loading active cookie: %s", e)
+            return False
 
     def _set_random_proxy(self):
         try:
@@ -82,100 +142,100 @@ class InstagramDownloader(BaseDownloader):
             self.L.context._session.proxies = {}
 
     def download_video(self, url: str) -> dict:
-        """تحميل منشور (فيديو، صورة، أو ألبوم)."""
+        """تحميل منشور (فيديو، صورة، أو ألبوم) مع تدوير تلقائي للكوكيز المتعددة عند الفشل."""
         shortcode = self._get_shortcode(url)
         if not shortcode:
             raise ValueError("رابط Instagram غير صالح أو غير مدعوم")
 
-        # نحاول أولاً استخدام yt-dlp لأنه الأسرع والأكثر استقراراً حالياً للفيديوهات والمنشورات الفردية
-        logger.info("📥 [yt-dlp] Attempting download first for: %s", url)
-        try:
-            opts = {}
-            if os.path.exists(config.INSTAGRAM_COOKIES):
-                opts["cookiefile"] = config.INSTAGRAM_COOKIES
-                logger.info("✅ Using Instagram cookies for yt-dlp")
-            
-            res = self._download(url, extra_opts=opts)
-            if res and os.path.exists(res["results"]) and not res["results"].lower().endswith(".na"):
-                logger.info("✅ [yt-dlp] Download success")
-                return {"results": res["results"], "description": res["description"]}
-        except Exception as yt_err:
-            logger.warning("⚠️ [yt-dlp] Failed to download: %s. Trying Instaloader...", yt_err)
-
-        # إذا فشل yt-dlp، نلجأ إلى Instaloader كخيار احتياطي (مثلاً للألبومات المتعددة)
-        proxies = []
-        try:
-            proxies = database.get_proxies()
-        except:
-            pass
-
-        attempts = []
-        if proxies:
-            sampled = random.sample(proxies, min(len(proxies), 3))
-            for p in sampled:
-                p_str = p.strip()
-                if p_str:
-                    if not p_str.startswith(("http://", "https://", "socks5://", "socks4://")):
-                        p_str = f"http://{p_str}"
-                    attempts.append(p_str)
-        attempts.append(None) # الاتصال المباشر
-
+        # جلب جميع الكوكيز المتاحة للتدوير في حال الفشل
+        all_cookies = database.get_ig_cookies()
+        working_cookies = [c for c in all_cookies if c.get("status") == "working"]
+        
+        # ترتيب الكوكيز النشط في البداية
+        working_cookies.sort(key=lambda x: 1 if x.get("is_active") else 0, reverse=True)
+        
+        cookie_attempts = working_cookies if working_cookies else [None]
         last_error = None
-        for i, proxy in enumerate(attempts):
-            target_name = f"temp_{shortcode}_{int(time.time())}_{i}"
-            target_dir = os.path.join(self.abs_download_path, target_name)
-            
-            try:
-                if proxy:
-                    self.L.context._session.proxies = {"http": proxy, "https": proxy}
-                    logger.info("📡 [Instaloader] Post fetch attempt %d: Using proxy: %s", i + 1, proxy)
-                else:
-                    self.L.context._session.proxies = {}
-                    logger.info("📡 [Instaloader] Post fetch attempt %d: Using direct connection", i + 1)
+        
+        for attempt_idx, cookie_data in enumerate(cookie_attempts):
+            if cookie_data:
+                logger.info("🔄 Instagram Download: Attempt %d using account @%s", attempt_idx + 1, cookie_data["username"])
+                self._write_cookie_file(cookie_data["cookies"])
+                
+                # تحديث جلسة Instaloader الحالية
+                import http.cookiejar
+                cj = http.cookiejar.MozillaCookieJar(config.INSTAGRAM_COOKIES)
+                cj.load(ignore_discard=True, ignore_expires=True)
+                self.L.context._session.cookies.clear()
+                self.L.context._session.cookies.update(cj)
+                for cookie in cj:
+                    if cookie.name == "ds_user_id":
+                        self.L.context.username = cookie.value
+                        break
+            else:
+                logger.info("Direct download attempt without cookies")
 
+            # ── 1. محاولة التحميل عبر yt-dlp (الأسرع والأفضل) ──
+            try:
+                opts = {}
+                if os.path.exists(config.INSTAGRAM_COOKIES) and cookie_data:
+                    opts["cookiefile"] = config.INSTAGRAM_COOKIES
+                    
+                res = self._download(url, extra_opts=opts)
+                if res and os.path.exists(res["results"]) and not res["results"].lower().endswith(".na"):
+                    logger.info("✅ [yt-dlp] Download success via @%s", cookie_data["username"] if cookie_data else "direct")
+                    return {"results": res["results"], "description": res["description"]}
+            except Exception as yt_err:
+                err_str = str(yt_err).lower()
+                logger.warning("⚠️ [yt-dlp] Attempt failed: %s", yt_err)
+                
+                # الكوكيز غير صالحة أو تم تقييدها
+                if cookie_data and any(kw in err_str for kw in ["login required", "empty media response", "400: bad request", "rate limit"]):
+                    logger.warning("⚠️ Cookie @%s is invalid/expired! Updating status in DB.", cookie_data["username"])
+                    database.update_ig_cookie_status(cookie_data["username"], "expired")
+                last_error = yt_err
+
+            # ── 2. محاولة التحميل الاحتياطية عبر Instaloader ──
+            try:
+                self._set_random_proxy()
+                target_name = f"temp_{shortcode}_{int(time.time())}_{attempt_idx}"
+                target_dir = os.path.join(self.abs_download_path, target_name)
+                
                 logger.info("📥 [Instaloader] Fetching post: %s", shortcode)
                 post = instaloader.Post.from_shortcode(self.L.context, shortcode)
                 description = post.caption or ""
                 
-                # التحميل الفعلي
                 logger.info("📥 [Instaloader] Downloading to folder: %s", target_name)
                 self.L.download_post(post, target=target_name)
-
-                # التحقق من وجود المجلد
-                if not os.path.exists(target_dir):
-                    if os.path.exists(target_name):
-                        target_dir = os.path.abspath(target_name)
-
-                # جمع الملفات
+                
+                if not os.path.exists(target_dir) and os.path.exists(target_name):
+                    target_dir = os.path.abspath(target_name)
+                    
                 media_files = []
                 if os.path.exists(target_dir):
                     for f in os.listdir(target_dir):
                         if f.lower().endswith(('.jpg', '.jpeg', '.png', '.mp4')):
                             media_files.append(os.path.join(target_dir, f))
-
-                if not media_files:
-                    raise ValueError("لم يتم العثور على ملفات وسائط بعد تحميل Instaloader")
-
-                media_files.sort()
-
-                # إذا كان ملفاً واحداً
-                if len(media_files) == 1:
-                    final_path = os.path.join(self.abs_download_path, f"insta_{shortcode}_{int(time.time())}{os.path.splitext(media_files[0])[1]}")
-                    shutil.copy2(media_files[0], final_path)
-                    shutil.rmtree(target_dir, ignore_errors=True)
-                    return {"results": final_path, "description": description}
-                
-                # ألبوم
-                logger.info("✅ [Instaloader] Success: %d items", len(media_files))
-                return {"results": media_files, "description": description}
-
-            except Exception as e:
-                last_error = e
-                logger.warning("⚠️ [Instaloader] Post fetch attempt %d failed: %s", i + 1, e)
-                if os.path.exists(target_dir):
+                            
+                if media_files:
+                    media_files.sort()
+                    if len(media_files) == 1:
+                        final_path = os.path.join(self.abs_download_path, f"insta_{shortcode}_{int(time.time())}{os.path.splitext(media_files[0])[1]}")
+                        shutil.copy2(media_files[0], final_path)
+                        shutil.rmtree(target_dir, ignore_errors=True)
+                        return {"results": final_path, "description": description}
+                    
+                    logger.info("✅ [Instaloader] Success: %d items", len(media_files))
+                    return {"results": media_files, "description": description}
+            except Exception as inst_err:
+                logger.warning("⚠️ [Instaloader] Attempt failed: %s", inst_err)
+                if cookie_data and "login" in str(inst_err).lower():
+                    database.update_ig_cookie_status(cookie_data["username"], "expired")
+                last_error = inst_err
+                if 'target_dir' in locals() and os.path.exists(target_dir):
                     shutil.rmtree(target_dir, ignore_errors=True)
 
-        raise ValueError(f"⚠️ خطأ في تحميل المنشور: {str(last_error)}")
+        raise ValueError(f"⚠️ تعذّر تحميل هذا المنشور. قد يكون مقيداً أو تم حظر الكوكيز حالياً. يرجى مراجعة لوحة التحكم.")
 
     def _get_shortcode(self, url: str) -> str:
         parts = [p for p in url.split("/") if p]
@@ -186,6 +246,7 @@ class InstagramDownloader(BaseDownloader):
 
     def get_active_stories(self, username: str) -> list[dict]:
         """جلب قائمة القصص النشطة لمستخدم معين."""
+        self._load_active_cookie()
         proxies = []
         try:
             proxies = database.get_proxies()
@@ -253,6 +314,7 @@ class InstagramDownloader(BaseDownloader):
 
     def download_story_url(self, url: str, is_video: bool) -> str:
         """تحميل قصة فردية مباشرة من رابط الـ CDN الخاص بإنستغرام."""
+        self._load_active_cookie()
         import uuid
         ext = ".mp4" if is_video else ".jpg"
         filename = f"story_{uuid.uuid4()}{ext}"

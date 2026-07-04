@@ -471,3 +471,193 @@ def api_speed_test():
     if not server_utils:
         return jsonify({"download": "N/A", "upload": "N/A"})
     return jsonify(server_utils.get_internet_speed())
+
+
+# ─── مسارات إدارة كوكيز إنستغرام ──────────────────────────────────────────────
+
+def _write_cookie_file(cookies_list: list) -> None:
+    """كتابة الكوكيز النشطة بتنسيق Netscape في ملفات الإعدادات للبوت."""
+    import urllib.parse
+    lines = ["# Netscape HTTP Cookie File", "# Generated from dashboard active account", ""]
+    for c in cookies_list:
+        domain = c.get("domain", ".instagram.com")
+        include_subdomains = "TRUE" if domain.startswith(".") else "FALSE"
+        path   = c.get("path", "/")
+        secure = "TRUE" if c.get("secure") else "FALSE"
+        expiry = int(c.get("expirationDate", 0))
+        name   = c["name"]
+        value  = urllib.parse.unquote(c["value"])
+        
+        line = f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expiry}\t{name}\t{value}"
+        lines.append(line)
+        
+    content = "\n".join(lines) + "\n"
+    
+    # 1. الكتابة في مسار config الرئيسي
+    os.makedirs(os.path.dirname(config.INSTAGRAM_COOKIES), exist_ok=True)
+    with open(config.INSTAGRAM_COOKIES, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content)
+        
+    # 2. الكتابة في مسار secrets كاحتياط
+    secrets_path = os.path.join(config.SECRETS_DIR, "instagram_cookies.txt")
+    os.makedirs(os.path.dirname(secrets_path), exist_ok=True)
+    with open(secrets_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content)
+    logger.info("🍪 Netscape cookies file updated successfully.")
+
+
+def _verify_single_ig_cookie(cookies_list: list) -> tuple[str, str]:
+    """فحص صلاحية الكوكيز عبر استدعاء API إنستغرام. يُرجع (username, status)."""
+    try:
+        cookies_dict = {}
+        for c in cookies_list:
+            cookies_dict[c["name"]] = urllib.parse.unquote(c["value"])
+            
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "X-IG-App-ID": "936619743392459",
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        
+        url_check = "https://www.instagram.com/api/v1/accounts/edit/web_current_user/"
+        r = http_requests.get(url_check, cookies=cookies_dict, headers=headers, timeout=10)
+        
+        if r.status_code == 200:
+            data = r.json()
+            username = data.get("form_data", {}).get("username")
+            if not username:
+                username = cookies_dict.get("ds_user_id", "unknown_user")
+            return username, "working"
+        else:
+            username = cookies_dict.get("ds_user_id", "unknown_user")
+            return username, "expired"
+    except Exception as e:
+        logger.error(f"Error verifying IG cookie: {e}")
+        # إذا تعذر الاتصال، نستخدم ds_user_id أو اسم افتراضي مع حفظ الحالة كـ expired
+        return "unknown", "expired"
+
+
+@app.route("/ig_cookies/list")
+def ig_cookies_list():
+    """إرجاع قائمة حسابات الكوكيز المضافة."""
+    cookies = database.get_ig_cookies()
+    # تنظيف مخرج الـ JSON لعدم إرسال الكوكيز الكاملة للمتصفح لدواعي الأمن (نرسل فقط معلومات الحساب)
+    cleaned = []
+    for c in cookies:
+        cleaned.append({
+            "username": c.get("username", "unknown"),
+            "status": c.get("status", "expired"),
+            "is_active": c.get("is_active", False),
+            "last_checked": c.get("last_checked", "")
+        })
+    return jsonify({"cookies": cleaned, "count": len(cleaned)})
+
+
+@app.route("/ig_cookies/add", methods=["POST"])
+def ig_cookies_add():
+    """إضافة كوكيز حساب جديد وفحصه."""
+    import json
+    raw_json = request.form.get("cookies_json", "").strip()
+    if not raw_json:
+        return jsonify({"ok": False, "msg": "الرجاء لصق كود الكوكيز (JSON)"})
+        
+    try:
+        cookies_list = json.loads(raw_json)
+        if not isinstance(cookies_list, list):
+             return jsonify({"ok": False, "msg": "تنسيق JSON غير صالح. يجب أن يكون قائمة من الكوكيز."})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": f"خطأ في تحليل JSON: {e}"})
+        
+    # فحص الكوكيز
+    username, status = _verify_single_ig_cookie(cookies_list)
+    
+    # إذا كانت القائمة فارغة حالياً، نجعل هذا الحساب نشطاً تلقائياً
+    current = database.get_ig_cookies()
+    make_active = (len(current) == 0 or status == "working")
+    
+    # حفظ في قاعدة البيانات
+    database.add_ig_cookie(username, cookies_list, status=status, is_active=make_active)
+    
+    # إذا تم تنشيطه، حدّث الملف الفعلي
+    if make_active:
+        _write_cookie_file(cookies_list)
+        
+    return jsonify({
+        "ok": True,
+        "username": username,
+        "status": status,
+        "is_active": make_active,
+        "msg": f"تمت إضافة الحساب @{username} بنجاح. حالة الحساب: {status}"
+    })
+
+
+@app.route("/ig_cookies/activate", methods=["POST"])
+def ig_cookies_activate():
+    """تفعيل حساب كوكيز معين."""
+    username = request.form.get("username", "").strip()
+    if not username:
+        return jsonify({"ok": False, "msg": "اسم المستخدم مطلوب"})
+        
+    cookies = database.get_ig_cookies()
+    target = None
+    for c in cookies:
+        if c.get("username") == username:
+            target = c
+            break
+            
+    if not target:
+        return jsonify({"ok": False, "msg": "الحساب غير موجود"})
+        
+    # تعيين كنشط في قاعدة البيانات
+    database.set_active_ig_cookie(username)
+    
+    # كتابة الملف
+    _write_cookie_file(target["cookies"])
+    
+    return jsonify({"ok": True, "msg": f"تم تفعيل الحساب @{username} كحساب رئيسي للبوت"})
+
+
+@app.route("/ig_cookies/delete", methods=["POST"])
+def ig_cookies_delete():
+    """حذف حساب كوكيز."""
+    username = request.form.get("username", "").strip()
+    if not username:
+        return jsonify({"ok": False, "msg": "اسم المستخدم مطلوب"})
+        
+    database.delete_ig_cookie(username)
+    return jsonify({"ok": True, "msg": f"تم حذف الحساب @{username} بنجاح"})
+
+
+@app.route("/ig_cookies/check_all", methods=["POST"])
+def ig_cookies_check_all():
+    """فحص وتحديث حالة جميع حسابات الكوكيز المضافة."""
+    cookies = database.get_ig_cookies()
+    if not cookies:
+        return jsonify({"ok": False, "msg": "لا توجد حسابات لفحصها"})
+        
+    checked = 0
+    working = 0
+    expired = 0
+    
+    for c in cookies:
+        username = c.get("username")
+        cookies_list = c.get("cookies", [])
+        if username and cookies_list:
+            _, status = _verify_single_ig_cookie(cookies_list)
+            database.update_ig_cookie_status(username, status)
+            checked += 1
+            if status == "working":
+                working += 1
+            else:
+                expired += 1
+                
+    return jsonify({
+        "ok": True,
+        "checked": checked,
+        "working": working,
+        "expired": expired,
+        "msg": f"تم فحص {checked} حساب. النشطة: {working}، المنتهية: {expired}"
+    })
+

@@ -227,6 +227,79 @@ class TikTokDownloader(BaseDownloader):
                 return found
         return ""
 
+    def get_user_videos(self, username: str, limit: int = 10) -> list:
+        """جلب أحدث مقاطع فيديو مستخدم تيك توك عبر TikWM API."""
+        # المحاولة الأولى: TikWM API
+        try:
+            r = requests.post(
+                "https://www.tikwm.com/api/user/posts",
+                data={"unique_id": username, "count": limit, "cursor": 0, "web": 1},
+                timeout=15,
+            )
+            r.raise_for_status()
+            data = r.json()
+            if data.get("code") == 0:
+                videos = data.get("data", {}).get("videos") or []
+                result = []
+                for v in videos[:limit]:
+                    vid_id = str(v.get("id", ""))
+                    # استخدم رابط TikTok المباشر حتى يعمل مع yt-dlp وTikWM fallback بشكل طبيعي
+                    result.append({
+                        "id":       vid_id,
+                        "title":    (v.get("title") or "بدون عنوان")[:50],
+                        "is_video": True,
+                        "duration": v.get("duration", 0),
+                        "play_url": f"https://www.tiktok.com/@{username}/video/{vid_id}",
+                    })
+                if result:
+                    logger.info("✅ TikWM returned %d videos for @%s", len(result), username)
+                    return result
+            logger.warning("⚠️ TikWM user posts empty/error for @%s: %s", username, data.get("msg"))
+        except Exception as e:
+            logger.warning("⚠️ TikWM user posts API failed: %s", e)
+
+        # المحاولة الثانية: yt-dlp
+        try:
+            import yt_dlp
+            opts = {
+                "quiet":         True,
+                "no_warnings":   True,
+                "extract_flat":  True,
+                "playlistend":   limit,
+                "skip_download": True,
+            }
+            if os.path.exists(config.TIKTOK_COOKIES):
+                opts["cookiefile"] = config.TIKTOK_COOKIES
+
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(
+                    f"https://www.tiktok.com/@{username}", download=False
+                )
+
+            if info and info.get("entries"):
+                result = []
+                for entry in info["entries"][:limit]:
+                    if not entry:
+                        continue
+                    vid_id = str(entry.get("id", ""))
+                    result.append({
+                        "id":       vid_id,
+                        "title":    (entry.get("title") or "بدون عنوان")[:50],
+                        "is_video": True,
+                        "duration": entry.get("duration", 0),
+                        "play_url": f"https://www.tiktok.com/@{username}/video/{vid_id}",
+                    })
+                if result:
+                    logger.info("✅ yt-dlp returned %d videos for @%s", len(result), username)
+                    return result
+        except Exception as e:
+            logger.warning("⚠️ yt-dlp user videos failed: %s", e)
+
+        raise ValueError(
+            f"لا يمكن الوصول إلى مقاطع فيديو الحساب @{username}. "
+            "قد يكون الحساب خاصاً أو غير موجود، يرجى المحاولة لاحقاً."
+        )
+
     def _download_file(self, url: str) -> str:
         """تحميل ملف وحفظه في مجلد التحميلات مع استخدام رؤوس طلبات صحيحة."""
         filename = f"{uuid.uuid4()}.jpg"
