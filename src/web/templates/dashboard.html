@@ -1515,7 +1515,6 @@
                 'channels': 'الاشتراك الإجباري',
                 'errors-section': 'سجل الأخطاء التقنية',
                 'proxies-section': 'إدارة البروكسيات',
-                'ig-cookies-section': 'كوكيز إنستغرام',
                 'whitelist-section': 'القائمة البيضاء (المميزين)',
                 'server-specs-section': 'مواصفات الخادم'
             };
@@ -1746,74 +1745,6 @@
             } finally {
                 btn.disabled = false;
             }
-        }
-
-            const formData = new FormData();
-            formData.append('cookies_json', input);
-
-            try {
-                const r = await fetch('/ig_cookies/add', { method: 'POST', body: formData });
-                const d = await r.json();
-                showIgResult(d.msg, d.ok);
-                if (d.ok) {
-                    document.getElementById('new-ig-cookies-input').value = '';
-                    fetchIgCookies();
-                }
-            } catch (e) {
-                console.error(e);
-                alert("حدث خطأ في الاتصال بالخادم.");
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = oldHtml;
-            }
-        }
-
-        async function activateIgCookie(username) {
-            const formData = new FormData();
-            formData.append('username', username);
-            try {
-                const r = await fetch('/ig_cookies/activate', { method: 'POST', body: formData });
-                const d = await r.json();
-                showIgResult(d.msg, d.ok);
-                fetchIgCookies();
-            } catch (e) { console.error(e); }
-        }
-
-        async function deleteIgCookie(username) {
-            if (!confirm(`هل أنت متأكد من حذف حساب @${username}؟`)) return;
-            const formData = new FormData();
-            formData.append('username', username);
-            try {
-                const r = await fetch('/ig_cookies/delete', { method: 'POST', body: formData });
-                const d = await r.json();
-                showIgResult(d.msg, d.ok);
-                fetchIgCookies();
-            } catch (e) { console.error(e); }
-        }
-
-        async function checkAllIgCookies() {
-            const btn = document.getElementById('btn-check-ig');
-            const oldHtml = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري فحص الحسابات...';
-
-            try {
-                const r = await fetch('/ig_cookies/check_all', { method: 'POST' });
-                const d = await r.json();
-                showIgResult(d.msg, d.ok);
-                fetchIgCookies();
-            } catch (e) { console.error(e); }
-            finally {
-                btn.disabled = false;
-                btn.innerHTML = oldHtml;
-            }
-        }
-
-        function showIgResult(msg, success) {
-            const box = document.getElementById('ig-result-box');
-            box.innerHTML = `<div class="toast ${success ? 'success' : 'error'}" style="position:static; width:100%; margin-bottom:0;">
-                <i class="fa-solid fa-info-circle"></i> ${msg}
-            </div>`;
         }
 
         // جلب البيانات عند التحميل
