@@ -140,31 +140,12 @@ class InstagramDownloader(BaseDownloader):
             "sec-fetch-dest": "empty",
         })
 
-        # جلب البروكسيات وتصفية العاملة منها فقط
+        # المحاولة الأولى: اتصال مباشر بدون بروكسي
+        # في حال الفشل فقط، نجلب البروكسيات ونفحصها
         all_proxies = []
-        try:
-            all_proxies = database.get_proxies()
-        except:
-            pass
 
-        working_proxies = []
-        if all_proxies:
-            logger.info(f"🔍 Found {len(all_proxies)} proxies in DB. Testing for working ones...")
-            # نخلط البروكسيات عشوائياً لفحص عينة مختلفة في كل مرة
-            test_list = list(all_proxies)
-            random.shuffle(test_list)
-            for p in test_list:
-                if self._is_proxy_working(p):
-                    logger.info(f"✅ Proxy works: {p}")
-                    working_proxies.append(p)
-                    # نكتفي ببروكسيين اثنين شغالين لتسريع وقت الاستجابة
-                    if len(working_proxies) >= 2:
-                        break
-                else:
-                    logger.warning(f"❌ Proxy dead: {p}")
-
-        # بناء محاولات التحميل: البروكسيات العاملة أولاً، ثم بدون بروكسي كخيار أخير
-        attempts = working_proxies + [None]
+        # بناء المحاولات: مباشر أولاً
+        attempts = [None]
 
         last_error = None
         for proxy in attempts:
@@ -222,14 +203,33 @@ class InstagramDownloader(BaseDownloader):
 
             except Exception as e:
                 last_error = e
-                logger.warning(f"Attempt failed: {e}")
+                logger.warning(f"⚠️ Attempt failed ({('proxy: ' + p_str) if proxy else 'direct'}): {e}")
                 if os.path.exists(filepath):
                     try:
                         os.remove(filepath)
                     except:
                         pass
 
-        raise Exception(f"فشل تحميل الفيديو بعد المحاولات: {last_error}")
+                # إذا كانت هذه المحاولة المباشرة (بدون بروكسي) وفشلت، نجلب البروكسيات ونفحصها
+                if proxy is None and not all_proxies:
+                    try:
+                        all_proxies = database.get_proxies()
+                    except:
+                        pass
+                    if all_proxies:
+                        logger.info(f"🔍 Direct failed. Found {len(all_proxies)} proxies. Testing...")
+                        random.shuffle(all_proxies)
+                        for p in all_proxies:
+                            if self._is_proxy_working(p):
+                                logger.info(f"✅ Proxy works: {p}")
+                                attempts.append(p)
+                                break
+                            else:
+                                logger.warning(f"❌ Proxy dead: {p}")
+                        if not any(a for a in attempts if a is not None):
+                            logger.warning("⚠️ No working proxies found. Giving up.")
+
+        raise Exception(f"⚠️ فشل تحميل الفيديو: {last_error}")
 
     def cleanup(self, path):
         if path and os.path.exists(path):
