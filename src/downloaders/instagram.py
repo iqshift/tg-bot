@@ -98,6 +98,21 @@ class InstagramDownloader(BaseDownloader):
 
         return real_url
 
+    def _is_proxy_working(self, proxy: str) -> bool:
+        """يتحقق مما إذا كان البروكسي يعمل حالياً عبر طلب سريع لـ snapreels.net."""
+        p_str = proxy.strip()
+        if not p_str.startswith(("http://", "https://", "socks4://", "socks5://")):
+            p_str = f"http://{p_str}"
+        try:
+            resp = requests.get(
+                "https://snapreels.net",
+                proxies={"http": p_str, "https": p_str},
+                timeout=4
+            )
+            return resp.status_code == 200
+        except Exception:
+            return False
+
     def download_video(self, url: str) -> dict:
         """
         يجلب رابط التحميل ويفك التشفير ويحمل الفيديو من Instagram CDN مباشرة.
@@ -125,16 +140,31 @@ class InstagramDownloader(BaseDownloader):
             "sec-fetch-dest": "empty",
         })
 
-        # جلب البروكسيات للاستخدام في حال الفشل
-        proxies = []
+        # جلب البروكسيات وتصفية العاملة منها فقط
+        all_proxies = []
         try:
-            proxies = database.get_proxies()
+            all_proxies = database.get_proxies()
         except:
             pass
 
-        attempts = [None]
-        if proxies:
-            attempts = [random.choice(proxies), None]
+        working_proxies = []
+        if all_proxies:
+            logger.info(f"🔍 Found {len(all_proxies)} proxies in DB. Testing for working ones...")
+            # نخلط البروكسيات عشوائياً لفحص عينة مختلفة في كل مرة
+            test_list = list(all_proxies)
+            random.shuffle(test_list)
+            for p in test_list:
+                if self._is_proxy_working(p):
+                    logger.info(f"✅ Proxy works: {p}")
+                    working_proxies.append(p)
+                    # نكتفي ببروكسيين اثنين شغالين لتسريع وقت الاستجابة
+                    if len(working_proxies) >= 2:
+                        break
+                else:
+                    logger.warning(f"❌ Proxy dead: {p}")
+
+        # بناء محاولات التحميل: البروكسيات العاملة أولاً، ثم بدون بروكسي كخيار أخير
+        attempts = working_proxies + [None]
 
         last_error = None
         for proxy in attempts:
