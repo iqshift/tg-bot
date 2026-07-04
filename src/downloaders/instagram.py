@@ -80,7 +80,64 @@ class InstagramDownloader(BaseDownloader):
         try:
             cookies_list = database.get_ig_cookies()
             if not cookies_list:
-                logger.warning("⚠️ No Instagram cookies found in database.")
+                logger.warning("⚠️ No Instagram cookies found in database. Checking for local text file to import...")
+                import urllib.parse
+                cookie_file = None
+                for path in [config.INSTAGRAM_COOKIES, os.path.join(config.SECRETS_DIR, "instagram_cookies.txt")]:
+                    if os.path.exists(path) and os.path.getsize(path) > 100:
+                        cookie_file = path
+                        break
+                
+                if cookie_file:
+                    logger.info("📥 Found existing cookie file: %s. Importing to database...", cookie_file)
+                    parsed_cookies = []
+                    ds_user_id = "imported_account"
+                    with open(cookie_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith("#"):
+                                continue
+                            parts = line.split("\t")
+                            if len(parts) >= 7:
+                                name = parts[5]
+                                value = parts[6]
+                                if name == "ds_user_id":
+                                    ds_user_id = value
+                                parsed_cookies.append({
+                                    "domain": parts[0],
+                                    "hostOnly": parts[1].lower() == "true",
+                                    "path": parts[2],
+                                    "secure": parts[3].lower() == "true",
+                                    "expirationDate": float(parts[4]) if parts[4].replace('.','',1).isdigit() else 0.0,
+                                    "name": name,
+                                    "value": value
+                                })
+                    if parsed_cookies:
+                        username = ds_user_id
+                        status = "working"
+                        try:
+                            cookies_dict = {c["name"]: urllib.parse.unquote(c["value"]) for c in parsed_cookies}
+                            headers = {
+                                "User-Agent": _USER_AGENT,
+                                "Accept": "*/*",
+                                "X-IG-App-ID": "936619743392459",
+                                "X-Requested-With": "XMLHttpRequest",
+                            }
+                            url_check = "https://www.instagram.com/api/v1/accounts/edit/web_current_user/"
+                            r = _requests.get(url_check, cookies=cookies_dict, headers=headers, timeout=10)
+                            if r.status_code == 200:
+                                username = r.json().get("form_data", {}).get("username", ds_user_id)
+                            else:
+                                status = "expired"
+                        except Exception as check_err:
+                            logger.warning("Could not verify imported cookies username: %s", check_err)
+                        
+                        database.add_ig_cookie(username, parsed_cookies, status=status, is_active=True)
+                        logger.info("✅ Imported cookies for @%s to database with status: %s", username, status)
+                        cookies_list = database.get_ig_cookies()
+
+            if not cookies_list:
+                logger.warning("⚠️ No Instagram cookies found in database after check.")
                 return False
             
             # البحث عن الكوكيز النشطة، أو أول كوكيز شغال
@@ -95,6 +152,9 @@ class InstagramDownloader(BaseDownloader):
                     if c.get("status") == "working":
                         active_cookie = c
                         break
+            
+            if not active_cookie and cookies_list:
+                active_cookie = cookies_list[0]
             
             if not active_cookie:
                 logger.warning("⚠️ No working or active Instagram cookies found in DB.")
@@ -150,6 +210,11 @@ class InstagramDownloader(BaseDownloader):
         # جلب جميع الكوكيز المتاحة للتدوير في حال الفشل
         all_cookies = database.get_ig_cookies()
         working_cookies = [c for c in all_cookies if c.get("status") == "working"]
+        if not working_cookies and all_cookies:
+            # استخدام الحساب النشط أو أي حساب كخيار أخير
+            working_cookies = [c for c in all_cookies if c.get("is_active")]
+            if not working_cookies:
+                working_cookies = all_cookies
         
         # ترتيب الكوكيز النشط في البداية
         working_cookies.sort(key=lambda x: 1 if x.get("is_active") else 0, reverse=True)
@@ -159,7 +224,7 @@ class InstagramDownloader(BaseDownloader):
         
         for attempt_idx, cookie_data in enumerate(cookie_attempts):
             if cookie_data:
-                logger.info("🔄 Instagram Download: Attempt %d using account @%s", attempt_idx + 1, cookie_data["username"])
+                logger.info("🔄 Instagram Download: Attempt %d using account @%s (status: %s)", attempt_idx + 1, cookie_data["username"], cookie_data.get("status"))
                 self._write_cookie_file(cookie_data["cookies"])
                 
                 # تحديث جلسة Instaloader الحالية
