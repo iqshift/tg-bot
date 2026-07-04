@@ -120,6 +120,9 @@ class InstagramDownloader(BaseDownloader):
             "Origin": "https://snapreels.net",
             "Accept": "*/*",
             "Accept-Language": "en-US,en;q=0.9",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
         })
 
         # جلب البروكسيات للاستخدام في حال الفشل
@@ -156,7 +159,7 @@ class InstagramDownloader(BaseDownloader):
                 logger.info(f"Instagram CDN URL extracted: {real_url[:80]}...")
 
                 # 3. تحميل الفيديو
-                with session.get(
+                with requests.get(
                     real_url,
                     stream=True,
                     timeout=60,
@@ -166,6 +169,9 @@ class InstagramDownloader(BaseDownloader):
                         "Accept-Language": "en-US,en;q=0.9",
                         "Accept-Encoding": "identity",
                         "Referer": "https://www.instagram.com/",
+                        "sec-fetch-dest": "video",
+                        "sec-fetch-mode": "no-cors",
+                        "sec-fetch-site": "cross-site",
                         "Range": "bytes=0-",
                     }
                 ) as resp:
