@@ -9,6 +9,7 @@ import base64
 import logging
 import requests
 import random
+import uuid
 from urllib.parse import urlparse, parse_qs
 
 import config
@@ -109,7 +110,7 @@ class InstagramDownloader(BaseDownloader):
                 shortcode = parts[i+1].split("?")[0]
                 break
 
-        filename = f"insta_{shortcode}_{int(base64.urlsafe_b64encode(os.urandom(3)).decode().strip('='))}.mp4"
+        filename = f"insta_{shortcode}_{uuid.uuid4().hex[:8]}.mp4"
         filepath = os.path.join(self.download_path, filename)
 
         session = requests.Session()
